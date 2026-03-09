@@ -30,6 +30,9 @@ export default function Meeting() {
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(true);
+    const [hasJoinedMeeting, setHasJoinedMeeting] = useState(false);
+    const [isPreparingMedia, setIsPreparingMedia] = useState(true);
+    const [mediaError, setMediaError] = useState('');
 
     // Chat States
     const [chatMessage, setChatMessage] = useState('');
@@ -95,6 +98,15 @@ export default function Meeting() {
 
     const syncTrackState = (track, enabled) => {
         if (track) track.enabled = enabled;
+    };
+
+    const applyPreferredTrackState = (stream) => {
+        if (!stream) return;
+
+        const audioTrack = stream.getAudioTracks()[0];
+        const videoTrack = stream.getVideoTracks()[0];
+        syncTrackState(audioTrack, isMicOn);
+        syncTrackState(videoTrack, isCamOn);
     };
 
     const attachTrackEndedHandler = (userId, slot, track, streamId) => {
@@ -240,31 +252,39 @@ export default function Meeting() {
         }
     };
 
+    const initializeLocalMedia = async () => {
+        setIsPreparingMedia(true);
+        setMediaError('');
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            });
+
+            applyPreferredTrackState(stream);
+            setLocalStream(stream);
+            localStreamRef.current = stream;
+            return stream;
+        } catch (err) {
+            console.error(err);
+            setMediaError('Camera or microphone access was denied.');
+            return null;
+        } finally {
+            setIsPreparingMedia(false);
+        }
+    };
+
     // Initialize and get access
     useEffect(() => {
         let mounted = true;
         const peers = peersRef.current;
 
         const init = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true
-                });
+            const stream = await initializeLocalMedia();
 
-                if (mounted) {
-                    setLocalStream(stream);
-                    localStreamRef.current = stream;
-                    if (localVideoRef.current) {
-                        localVideoRef.current.srcObject = stream;
-                    }
-                    setupSocket(stream);
-                } else {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-            } catch (err) {
-                toast.error("Could not access camera/microphone");
-                console.error(err);
+            if (!mounted && stream) {
+                stream.getTracks().forEach(track => track.stop());
             }
         };
 
@@ -372,8 +392,11 @@ export default function Meeting() {
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 setIsMicOn(audioTrack.enabled);
+                return;
             }
         }
+
+        setIsMicOn(prev => !prev);
     };
 
     const toggleCam = () => {
@@ -383,8 +406,11 @@ export default function Meeting() {
                 const enabled = !videoTrack.enabled;
                 syncTrackState(videoTrack, enabled);
                 setIsCamOn(enabled);
+                return;
             }
         }
+
+        setIsCamOn(prev => !prev);
     };
 
     const toggleScreenShare = async () => {
@@ -591,6 +617,107 @@ export default function Meeting() {
         if (socketRef.current) socketRef.current.disconnect();
         navigate('/');
     };
+
+    const handleJoinMeeting = async () => {
+        let stream = localStreamRef.current;
+
+        if (!stream && (isMicOn || isCamOn)) {
+            stream = await initializeLocalMedia();
+            if (!stream) {
+                toast.error('Allow camera/microphone or disable them before joining.');
+                return;
+            }
+        }
+
+        if (stream) {
+            applyPreferredTrackState(stream);
+        }
+
+        setupSocket(stream);
+        setHasJoinedMeeting(true);
+    };
+
+    if (!hasJoinedMeeting) {
+        return (
+            <div className="meeting-wrapper">
+                <header className="meeting-header">
+                    <div className="logo" style={{ fontSize: '1.2rem' }}>ZMeet <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 'normal', marginLeft: '10px' }}>Room: {roomId}</span></div>
+                </header>
+
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
+                    <div className="glass-panel" style={{ width: 'min(960px, 100%)', padding: '32px', display: 'grid', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(260px, 0.8fr)', gap: '24px' }}>
+                        <div className="video-wrapper" style={{ minHeight: '420px' }}>
+                            {localStream ? (
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    style={{ transform: 'scaleX(-1)' }}
+                                />
+                            ) : (
+                                <div style={{ color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>
+                                    {isPreparingMedia ? 'Preparing camera preview...' : 'No camera preview available'}
+                                </div>
+                            )}
+                            <div className="video-name">Preview</div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '20px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <h1 style={{ fontSize: '2rem', lineHeight: 1.1 }}>Ready to join?</h1>
+                                <p style={{ color: 'var(--text-muted)' }}>
+                                    Choose your microphone and camera settings before entering the meeting.
+                                </p>
+                                {mediaError && (
+                                    <p style={{ color: 'var(--danger)', fontSize: '0.95rem' }}>{mediaError}</p>
+                                )}
+                            </div>
+
+                            <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                <button
+                                    type="button"
+                                    onClick={toggleMic}
+                                    className={`btn ${isMicOn ? 'primary-btn' : 'danger-btn'}`}
+                                    style={{ width: '100%' }}
+                                >
+                                    {isMicOn ? 'Microphone On' : 'Microphone Off'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={toggleCam}
+                                    className={`btn ${isCamOn ? 'primary-btn' : 'danger-btn'}`}
+                                    style={{ width: '100%' }}
+                                >
+                                    {isCamOn ? 'Camera On' : 'Camera Off'}
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <button
+                                    type="button"
+                                    className="btn primary-btn"
+                                    onClick={handleJoinMeeting}
+                                    disabled={isPreparingMedia}
+                                    style={{ width: '100%' }}
+                                >
+                                    {isPreparingMedia ? 'Preparing...' : 'Join Meeting'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={handleLeave}
+                                    style={{ width: '100%', background: 'var(--bg-secondary)', color: 'white', border: '1px solid var(--border)' }}
+                                >
+                                    Back
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="meeting-wrapper">
