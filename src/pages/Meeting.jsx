@@ -41,6 +41,8 @@ export default function Meeting() {
     const localVideoRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
+    const localStreamRef = useRef(null);
+    const screenStreamRef = useRef(null);
 
     // Audio mix output for recording
     const audioContextRef = useRef(null);
@@ -58,6 +60,7 @@ export default function Meeting() {
 
                 if (mounted) {
                     setLocalStream(stream);
+                    localStreamRef.current = stream;
                     if (localVideoRef.current) {
                         localVideoRef.current.srcObject = stream;
                     }
@@ -75,8 +78,8 @@ export default function Meeting() {
 
         return () => {
             mounted = false;
-            if (localStream) localStream.getTracks().forEach(track => track.stop());
-            if (screenStream) screenStream.getTracks().forEach(track => track.stop());
+            if (localStreamRef.current) localStreamRef.current.getTracks().forEach(track => track.stop());
+            if (screenStreamRef.current) screenStreamRef.current.getTracks().forEach(track => track.stop());
             if (socketRef.current) socketRef.current.disconnect();
 
             Object.keys(peersRef.current).forEach(id => {
@@ -255,6 +258,7 @@ export default function Meeting() {
                 // Display locally
                 localVideoRef.current.srcObject = stream;
                 setScreenStream(stream);
+                screenStreamRef.current = stream;
                 setIsScreenSharing(true);
                 setIsCamOn(false);
 
@@ -276,9 +280,10 @@ export default function Meeting() {
     };
 
     const stopScreenShare = () => {
-        if (screenStream) {
-            screenStream.getTracks().forEach(t => t.stop());
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(t => t.stop());
             setScreenStream(null);
+            screenStreamRef.current = null;
         }
 
         // Revert to local camera
@@ -443,6 +448,9 @@ export default function Meeting() {
     };
 
     const handleLeave = () => {
+        if (localStreamRef.current) localStreamRef.current.getTracks().forEach(track => track.stop());
+        if (screenStreamRef.current) screenStreamRef.current.getTracks().forEach(track => track.stop());
+        if (socketRef.current) socketRef.current.disconnect();
         navigate('/');
     };
 
@@ -473,6 +481,16 @@ export default function Meeting() {
                                 muted
                                 style={{ transform: isScreenSharing ? 'scaleX(1)' : 'scaleX(-1)' }} // Mirror if it's camera
                             />
+                            {isScreenSharing && (
+                                <video
+                                    className="local-pip-video"
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    style={{ transform: 'scaleX(-1)' }}
+                                    ref={el => { if (el && localStreamRef.current) el.srcObject = localStreamRef.current; }}
+                                />
+                            )}
                             <div className="video-name">You {isScreenSharing ? '(Screen)' : ''}</div>
                         </div>
 
