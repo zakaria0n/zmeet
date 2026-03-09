@@ -12,7 +12,7 @@ export default function Recordings() {
     useEffect(() => {
         const fetchRecordings = async () => {
             try {
-                const res = await fetch(`${API_URL}/recordings/my-recordings?userId=${user.id}`, {
+                const res = await fetch(`${API_URL}/recordings/my-recordings`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }

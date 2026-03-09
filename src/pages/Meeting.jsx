@@ -47,9 +47,12 @@ export default function Meeting() {
     // Audio mix output for recording
     const audioContextRef = useRef(null);
 
+    const isTargetedToCurrentUser = (target) => !target || target === user.id;
+
     // Initialize and get access
     useEffect(() => {
         let mounted = true;
+        const peers = peersRef.current;
 
         const init = async () => {
             try {
@@ -82,8 +85,8 @@ export default function Meeting() {
             if (screenStreamRef.current) screenStreamRef.current.getTracks().forEach(track => track.stop());
             if (socketRef.current) socketRef.current.disconnect();
 
-            Object.keys(peersRef.current).forEach(id => {
-                peersRef.current[id].close();
+            Object.keys(peers).forEach(id => {
+                peers[id].close();
             });
         };
         // eslint-disable-next-line
@@ -100,12 +103,14 @@ export default function Meeting() {
             peersRef.current[userId] = peer;
         });
 
-        socketRef.current.on('webrtc-offer', async ({ offer, senderId }) => {
+        socketRef.current.on('webrtc-offer', async ({ offer, senderId, target }) => {
+            if (!isTargetedToCurrentUser(target)) return;
             const peer = addPeer(offer, senderId, currentStream);
             peersRef.current[senderId] = peer;
         });
 
-        socketRef.current.on('webrtc-answer', async ({ answer, senderId }) => {
+        socketRef.current.on('webrtc-answer', async ({ answer, senderId, target }) => {
+            if (!isTargetedToCurrentUser(target)) return;
             const peer = peersRef.current[senderId];
             if (peer) {
                 try {
@@ -116,7 +121,8 @@ export default function Meeting() {
             }
         });
 
-        socketRef.current.on('ice-candidate', async ({ candidate, senderId }) => {
+        socketRef.current.on('ice-candidate', async ({ candidate, senderId, target }) => {
+            if (!isTargetedToCurrentUser(target)) return;
             const peer = peersRef.current[senderId];
             if (peer) {
                 try {
@@ -380,7 +386,7 @@ export default function Meeting() {
         toast("Uploading recording...", { icon: '⏳' });
 
         try {
-            const { data, error } = await supabase.storage
+            const { error } = await supabase.storage
                 .from('recordings')
                 .upload(fileName, blob, { contentType: 'video/webm' });
 
@@ -392,10 +398,12 @@ export default function Meeting() {
 
             const res = await fetch(`${API_URL}/recordings/save-metadata`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     room_code: roomId,
-                    created_by: user.id,
                     file_url: publicData.publicUrl
                 })
             });

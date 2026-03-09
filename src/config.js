@@ -8,7 +8,7 @@ export const SOCKET_URL = window.location.hostname === 'localhost' || window.loc
     ? 'http://localhost:5000'
     : 'https://zmeet-backend.onrender.com';
 
-export const SUPABASE_URL = 'https://ufalawtpgydtdxvhgujw.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmYWxhd3RwZ3lkdGR4dmhndWp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjgxNzEsImV4cCI6MjA4ODY0NDE3MX0.M86UVWITvZBJ3Y-rnX_DxJThRBtikYdV7TYc-b_OsGY';
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

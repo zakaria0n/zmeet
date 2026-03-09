@@ -107,7 +107,7 @@ export default function Dashboard() {
                             type="text"
                             placeholder="Enter Room Code (e.g. ABCDEF)"
                             value={roomCode}
-                            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                            onChange={(e) => setRoomCode(e.target.value.toLowerCase())}
                             maxLength={6}
                             style={{ padding: '15px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'white', fontSize: '1.1rem', textAlign: 'center', letterSpacing: '2px' }}
                         />
