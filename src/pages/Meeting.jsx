@@ -263,7 +263,12 @@ export default function Meeting() {
                     stopScreenShare();
                 };
             } catch (err) {
-                console.error("Error sharing screen", err);
+                if (err.name === "NotAllowedError" || err.message.includes("Permission denied")) {
+                    toast.error("Screen sharing was cancelled.");
+                } else {
+                    console.error("Error sharing screen", err);
+                    toast.error("An error occurred while sharing the screen.");
+                }
             }
         } else {
             stopScreenShare();
@@ -347,8 +352,12 @@ export default function Meeting() {
             }]);
 
         } catch (err) {
-            console.error(err);
-            toast.error("Failed to start recording.");
+            if (err.name === "NotAllowedError" || err.message.includes("Permission denied")) {
+                toast.error("Screen sharing/recording was cancelled.");
+            } else {
+                console.error(err);
+                toast.error("Failed to start recording.");
+            }
         }
     };
 
