@@ -39,6 +39,7 @@ export default function Meeting() {
     const socketRef = useRef(null);
     const peersRef = useRef({});
     const localVideoRef = useRef(null);
+    const screenVideoRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
     const localStreamRef = useRef(null);
@@ -91,6 +92,18 @@ export default function Meeting() {
         };
         // eslint-disable-next-line
     }, [roomId, user.id]);
+
+    useEffect(() => {
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = localStream;
+        }
+    }, [localStream]);
+
+    useEffect(() => {
+        if (screenVideoRef.current) {
+            screenVideoRef.current.srcObject = screenStream;
+        }
+    }, [screenStream]);
 
     const setupSocket = (currentStream) => {
         socketRef.current = io(SOCKET_URL);
@@ -227,9 +240,8 @@ export default function Meeting() {
 
     // Controls Logic
     const toggleMic = () => {
-        const activeStream = screenStream || localStream;
-        if (activeStream) {
-            const audioTrack = activeStream.getAudioTracks()[0];
+        if (localStream) {
+            const audioTrack = localStream.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 setIsMicOn(audioTrack.enabled);
@@ -238,7 +250,7 @@ export default function Meeting() {
     };
 
     const toggleCam = () => {
-        if (localStream && !isScreenSharing) {
+        if (localStream) {
             const videoTrack = localStream.getVideoTracks()[0];
             if (videoTrack) {
                 videoTrack.enabled = !videoTrack.enabled;
@@ -261,12 +273,9 @@ export default function Meeting() {
                     if (sender) sender.replaceTrack(videoTrack);
                 });
 
-                // Display locally
-                localVideoRef.current.srcObject = stream;
                 setScreenStream(stream);
                 screenStreamRef.current = stream;
                 setIsScreenSharing(true);
-                setIsCamOn(false);
 
                 // Listen for browser "stop sharing"
                 videoTrack.onended = () => {
@@ -300,7 +309,6 @@ export default function Meeting() {
             if (sender && videoTrack) sender.replaceTrack(videoTrack);
         });
 
-        localVideoRef.current.srcObject = localStream;
         setIsScreenSharing(false);
         setIsCamOn(videoTrack ? videoTrack.enabled : false);
     };
@@ -480,27 +488,29 @@ export default function Meeting() {
                 {/* Videos Area */}
                 <div className="video-area">
                     <div className="video-grid">
-                        {/* Local Video */}
+                        {/* Local Camera */}
                         <div className="video-wrapper">
                             <video
                                 ref={localVideoRef}
                                 autoPlay
                                 playsInline
                                 muted
-                                style={{ transform: isScreenSharing ? 'scaleX(1)' : 'scaleX(-1)' }} // Mirror if it's camera
+                                style={{ transform: 'scaleX(-1)' }}
                             />
-                            {isScreenSharing && (
+                            <div className="video-name">You (Camera)</div>
+                        </div>
+
+                        {isScreenSharing && (
+                            <div className="video-wrapper screen-share-tile">
                                 <video
-                                    className="local-pip-video"
+                                    ref={screenVideoRef}
                                     autoPlay
                                     playsInline
                                     muted
-                                    style={{ transform: 'scaleX(-1)' }}
-                                    ref={el => { if (el && localStreamRef.current) el.srcObject = localStreamRef.current; }}
                                 />
-                            )}
-                            <div className="video-name">You {isScreenSharing ? '(Screen)' : ''}</div>
-                        </div>
+                                <div className="video-name">Your Screen</div>
+                            </div>
+                        )}
 
                         {/* Remote Videos */}
                         {Object.entries(remoteStreams).map(([peerId, stream]) => (
@@ -528,7 +538,6 @@ export default function Meeting() {
                         <button
                             onClick={toggleCam}
                             className={`icon-btn ${!isCamOn ? 'muted' : 'active'}`}
-                            disabled={isScreenSharing}
                             title={isCamOn ? "Turn off camera" : "Turn on camera"}
                         >
                             {isCamOn ? <Video size={24} /> : <VideoOff size={24} />}

@@ -178,17 +178,8 @@ body {
   /* Changed from cover to contain to prevent screen share cropping */
 }
 
-.local-pip-video {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 150px;
-  height: auto;
-  border-radius: 8px;
-  border: 2px solid var(--accent);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  z-index: 5;
-  background: #000;
+.screen-share-tile {
+  min-height: 320px;
 }
 
 .video-name {
