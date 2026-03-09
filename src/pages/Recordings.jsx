@@ -9,6 +9,7 @@ export default function Recordings() {
     const [recordings, setRecordings] = useState([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState(null);
+    const [downloadingId, setDownloadingId] = useState(null);
 
     useEffect(() => {
         const fetchRecordings = async () => {
@@ -61,6 +62,31 @@ export default function Recordings() {
         }
     };
 
+    const handleDownloadRecording = async (recording) => {
+        try {
+            setDownloadingId(recording.id);
+            const response = await fetch(recording.file_url);
+
+            if (!response.ok) {
+                throw new Error('Failed to download recording');
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `${recording.room_code}-${recording.id}.webm`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            toast.error(`Download failed: ${err.message}`);
+        } finally {
+            setDownloadingId(null);
+        }
+    };
+
     return (
         <>
             <header className="top-nav">
@@ -92,9 +118,15 @@ export default function Recordings() {
                                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
                                     Recorded on: {new Date(rec.created_at).toLocaleString()}
                                 </p>
-                                <a href={rec.file_url} download target="_blank" rel="noreferrer" className="btn primary-btn" style={{ marginTop: '10px' }}>
-                                    Download Video
-                                </a>
+                                <button
+                                    type="button"
+                                    className="btn primary-btn"
+                                    style={{ marginTop: '10px' }}
+                                    disabled={downloadingId === rec.id}
+                                    onClick={() => handleDownloadRecording(rec)}
+                                >
+                                    {downloadingId === rec.id ? 'Downloading...' : 'Download Video'}
+                                </button>
                                 <button
                                     type="button"
                                     className="btn danger-btn"
