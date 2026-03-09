@@ -137,7 +137,9 @@ export default function Meeting() {
         });
 
         socketRef.current.on('chat-message', (data) => {
-            setMessages(prev => [...prev, data]);
+            if (data.senderId !== user.id) {
+                setMessages(prev => [...prev, data]);
+            }
         });
     };
 
