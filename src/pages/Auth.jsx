@@ -35,7 +35,7 @@ export default function Auth() {
             }
 
             if (isLogin) {
-                login(data.user, data.session.access_token);
+                login(data.user, data.session);
                 toast.success("Logged in successfully!");
                 navigate('/');
             } else {

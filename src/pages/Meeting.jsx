@@ -18,13 +18,13 @@ const configuration = {
 
 export default function Meeting() {
     const { roomId } = useParams();
-    const { user, token } = useAuth();
+    const { user, getValidToken } = useAuth();
     const navigate = useNavigate();
 
     // Media States
     const [localStream, setLocalStream] = useState(null);
     const [screenStream, setScreenStream] = useState(null);
-    const [remoteStreams, setRemoteStreams] = useState({});
+    const [remoteParticipants, setRemoteParticipants] = useState({});
     const [isMicOn, setIsMicOn] = useState(true);
     const [isCamOn, setIsCamOn] = useState(true);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -38,6 +38,7 @@ export default function Meeting() {
     // Refs
     const socketRef = useRef(null);
     const peersRef = useRef({});
+    const remoteStreamSlotsRef = useRef({});
     const localVideoRef = useRef(null);
     const screenVideoRef = useRef(null);
     const mediaRecorderRef = useRef(null);
@@ -49,6 +50,195 @@ export default function Meeting() {
     const audioContextRef = useRef(null);
 
     const isTargetedToCurrentUser = (target) => !target || target === user.id;
+    const setParticipantStream = (userId, slot, stream) => {
+        setRemoteParticipants(prev => ({
+            ...prev,
+            [userId]: {
+                cameraStream: prev[userId]?.cameraStream || null,
+                screenStream: prev[userId]?.screenStream || null,
+                [slot]: stream
+            }
+        }));
+    };
+
+    const clearParticipantStream = (userId, slot) => {
+        setRemoteParticipants(prev => {
+            const participant = prev[userId];
+            if (!participant) return prev;
+
+            const nextParticipant = {
+                ...participant,
+                [slot]: null
+            };
+
+            if (!nextParticipant.cameraStream && !nextParticipant.screenStream) {
+                const next = { ...prev };
+                delete next[userId];
+                return next;
+            }
+
+            return {
+                ...prev,
+                [userId]: nextParticipant
+            };
+        });
+    };
+
+    const removeParticipant = (userId) => {
+        delete remoteStreamSlotsRef.current[userId];
+        setRemoteParticipants(prev => {
+            const next = { ...prev };
+            delete next[userId];
+            return next;
+        });
+    };
+
+    const syncTrackState = (track, enabled) => {
+        if (track) track.enabled = enabled;
+    };
+
+    const attachTrackEndedHandler = (userId, slot, track, streamId) => {
+        track.onended = () => {
+            const slots = remoteStreamSlotsRef.current[userId];
+            if (slots?.[slot] === streamId) {
+                delete slots[slot];
+            }
+            clearParticipantStream(userId, slot);
+        };
+    };
+
+    const registerRemoteTrack = (userId, track, stream) => {
+        if (track.kind !== 'video' || !stream) return;
+
+        const slots = remoteStreamSlotsRef.current[userId] || {};
+        const knownCameraId = slots.camera;
+        const knownScreenId = slots.screen;
+        let slot = 'camera';
+
+        if (knownCameraId === stream.id) {
+            slot = 'camera';
+        } else if (knownScreenId === stream.id) {
+            slot = 'screen';
+        } else if (!knownCameraId) {
+            slot = 'camera';
+            slots.camera = stream.id;
+        } else {
+            slot = 'screen';
+            slots.screen = stream.id;
+        }
+
+        remoteStreamSlotsRef.current[userId] = slots;
+        setParticipantStream(userId, slot, stream);
+        attachTrackEndedHandler(userId, slot, track, stream.id);
+    };
+
+    const createPeerRecord = (peerConnection) => ({
+        connection: peerConnection,
+        makingOffer: false
+    });
+
+    const getLocalMediaStreamsForPeer = () => {
+        const streams = [];
+
+        if (localStreamRef.current) {
+            streams.push(localStreamRef.current);
+        }
+
+        if (screenStreamRef.current) {
+            streams.push(screenStreamRef.current);
+        }
+
+        return streams;
+    };
+
+    const ensurePeerConnection = (remoteUserId) => {
+        if (peersRef.current[remoteUserId]) {
+            return peersRef.current[remoteUserId];
+        }
+
+        const connection = new RTCPeerConnection(configuration);
+        const peerRecord = createPeerRecord(connection);
+
+        connection.onicecandidate = (event) => {
+            if (event.candidate) {
+                socketRef.current.emit('ice-candidate', {
+                    roomId,
+                    candidate: event.candidate,
+                    target: remoteUserId
+                });
+            }
+        };
+
+        connection.ontrack = (event) => {
+            registerRemoteTrack(remoteUserId, event.track, event.streams[0]);
+        };
+
+        getLocalMediaStreamsForPeer().forEach(stream => {
+            stream.getTracks().forEach(track => {
+                connection.addTrack(track, stream);
+            });
+        });
+
+        peersRef.current[remoteUserId] = peerRecord;
+        return peerRecord;
+    };
+
+    const negotiateWithPeer = async (remoteUserId) => {
+        const peerRecord = ensurePeerConnection(remoteUserId);
+        const { connection } = peerRecord;
+
+        if (peerRecord.makingOffer || connection.signalingState !== 'stable') {
+            return;
+        }
+
+        try {
+            peerRecord.makingOffer = true;
+            const offer = await connection.createOffer();
+            await connection.setLocalDescription(offer);
+
+            socketRef.current.emit('webrtc-offer', {
+                roomId,
+                offer,
+                target: remoteUserId
+            });
+        } catch (error) {
+            console.error('Error creating offer', error);
+        } finally {
+            peerRecord.makingOffer = false;
+        }
+    };
+
+    const addScreenTrackToPeers = async (stream) => {
+        const track = stream.getVideoTracks()[0];
+        const peerIds = Object.keys(peersRef.current);
+
+        for (const peerId of peerIds) {
+            const { connection } = ensurePeerConnection(peerId);
+            const alreadyAdded = connection.getSenders().some(sender => sender.track?.id === track.id);
+
+            if (!alreadyAdded) {
+                connection.addTrack(track, stream);
+            }
+
+            await negotiateWithPeer(peerId);
+        }
+    };
+
+    const removeScreenTrackFromPeers = async (stream) => {
+        const track = stream?.getVideoTracks?.()[0];
+        const peerIds = Object.keys(peersRef.current);
+
+        for (const peerId of peerIds) {
+            const { connection } = peersRef.current[peerId];
+            const sender = connection.getSenders().find(currentSender => currentSender.track?.id === track?.id);
+
+            if (sender) {
+                connection.removeTrack(sender);
+            }
+
+            await negotiateWithPeer(peerId);
+        }
+    };
 
     // Initialize and get access
     useEffect(() => {
@@ -87,7 +277,7 @@ export default function Meeting() {
             if (socketRef.current) socketRef.current.disconnect();
 
             Object.keys(peers).forEach(id => {
-                peers[id].close();
+                peers[id].connection.close();
             });
         };
         // eslint-disable-next-line
@@ -112,22 +302,36 @@ export default function Meeting() {
 
         socketRef.current.on('user-connected', async ({ userId, userName }) => {
             toast(`${userName} joined the room`);
-            const peer = createPeer(userId, socketRef.current.id, currentStream);
-            peersRef.current[userId] = peer;
+            ensurePeerConnection(userId, currentStream);
+            await negotiateWithPeer(userId);
         });
 
         socketRef.current.on('webrtc-offer', async ({ offer, senderId, target }) => {
             if (!isTargetedToCurrentUser(target)) return;
-            const peer = addPeer(offer, senderId, currentStream);
-            peersRef.current[senderId] = peer;
+            const peerRecord = ensurePeerConnection(senderId, currentStream);
+            const { connection } = peerRecord;
+
+            try {
+                await connection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await connection.createAnswer();
+                await connection.setLocalDescription(answer);
+
+                socketRef.current.emit('webrtc-answer', {
+                    roomId,
+                    answer,
+                    target: senderId
+                });
+            } catch (error) {
+                console.error('Error handling offer', error);
+            }
         });
 
         socketRef.current.on('webrtc-answer', async ({ answer, senderId, target }) => {
             if (!isTargetedToCurrentUser(target)) return;
-            const peer = peersRef.current[senderId];
-            if (peer) {
+            const peerRecord = peersRef.current[senderId];
+            if (peerRecord) {
                 try {
-                    await peer.setRemoteDescription(new RTCSessionDescription(answer));
+                    await peerRecord.connection.setRemoteDescription(new RTCSessionDescription(answer));
                 } catch (e) {
                     console.error("Error setting remote description on answer", e);
                 }
@@ -136,10 +340,10 @@ export default function Meeting() {
 
         socketRef.current.on('ice-candidate', async ({ candidate, senderId, target }) => {
             if (!isTargetedToCurrentUser(target)) return;
-            const peer = peersRef.current[senderId];
-            if (peer) {
+            const peerRecord = peersRef.current[senderId];
+            if (peerRecord) {
                 try {
-                    await peer.addIceCandidate(new RTCIceCandidate(candidate));
+                    await peerRecord.connection.addIceCandidate(new RTCIceCandidate(candidate));
                 } catch (e) {
                     console.error("Error adding received ice candidate", e);
                 }
@@ -148,13 +352,9 @@ export default function Meeting() {
 
         socketRef.current.on('user-disconnected', ({ userId }) => {
             if (peersRef.current[userId]) {
-                peersRef.current[userId].close();
+                peersRef.current[userId].connection.close();
                 delete peersRef.current[userId];
-                setRemoteStreams(prev => {
-                    const newStreams = { ...prev };
-                    delete newStreams[userId];
-                    return newStreams;
-                });
+                removeParticipant(userId);
             }
         });
 
@@ -163,79 +363,6 @@ export default function Meeting() {
                 setMessages(prev => [...prev, data]);
             }
         });
-    };
-
-    const createPeer = (userId, callerId, stream) => {
-        const peer = new RTCPeerConnection(configuration);
-
-        peer.onicecandidate = (event) => {
-            if (event.candidate) {
-                socketRef.current.emit('ice-candidate', {
-                    roomId,
-                    candidate: event.candidate,
-                    target: userId
-                });
-            }
-        };
-
-        peer.ontrack = (event) => {
-            setRemoteStreams(prev => ({
-                ...prev,
-                [userId]: event.streams[0]
-            }));
-        };
-
-        stream.getTracks().forEach(track => {
-            peer.addTrack(track, stream);
-        });
-
-        peer.createOffer().then(offer => {
-            peer.setLocalDescription(offer);
-            socketRef.current.emit('webrtc-offer', {
-                roomId,
-                offer,
-                target: userId
-            });
-        });
-
-        return peer;
-    };
-
-    const addPeer = async (offer, callerId, stream) => {
-        const peer = new RTCPeerConnection(configuration);
-
-        peer.onicecandidate = (event) => {
-            if (event.candidate) {
-                socketRef.current.emit('ice-candidate', {
-                    roomId,
-                    candidate: event.candidate,
-                    target: callerId
-                });
-            }
-        };
-
-        peer.ontrack = (event) => {
-            setRemoteStreams(prev => ({
-                ...prev,
-                [callerId]: event.streams[0]
-            }));
-        };
-
-        stream.getTracks().forEach(track => {
-            peer.addTrack(track, stream);
-        });
-
-        await peer.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-
-        socketRef.current.emit('webrtc-answer', {
-            roomId,
-            answer,
-            target: callerId
-        });
-
-        return peer;
     };
 
     // Controls Logic
@@ -253,8 +380,9 @@ export default function Meeting() {
         if (localStream) {
             const videoTrack = localStream.getVideoTracks()[0];
             if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                setIsCamOn(videoTrack.enabled);
+                const enabled = !videoTrack.enabled;
+                syncTrackState(videoTrack, enabled);
+                setIsCamOn(enabled);
             }
         }
     };
@@ -264,21 +392,13 @@ export default function Meeting() {
             try {
                 const stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
 
-                // Replace video track in all peers
-                const videoTrack = stream.getVideoTracks()[0];
-
-                Object.keys(peersRef.current).forEach(userId => {
-                    const peer = peersRef.current[userId];
-                    const sender = peer.getSenders().find(s => s.track && s.track.kind === 'video');
-                    if (sender) sender.replaceTrack(videoTrack);
-                });
-
                 setScreenStream(stream);
                 screenStreamRef.current = stream;
                 setIsScreenSharing(true);
+                await addScreenTrackToPeers(stream);
 
                 // Listen for browser "stop sharing"
-                videoTrack.onended = () => {
+                stream.getVideoTracks()[0].onended = () => {
                     stopScreenShare();
                 };
             } catch (err) {
@@ -295,19 +415,18 @@ export default function Meeting() {
     };
 
     const stopScreenShare = () => {
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach(t => t.stop());
+        const activeScreenStream = screenStreamRef.current;
+
+        if (activeScreenStream) {
+            removeScreenTrackFromPeers(activeScreenStream).catch(error => {
+                console.error('Error removing screen share track', error);
+            });
+            activeScreenStream.getTracks().forEach(t => t.stop());
             setScreenStream(null);
             screenStreamRef.current = null;
         }
 
-        // Revert to local camera
-        const videoTrack = localStream.getVideoTracks()[0];
-        Object.keys(peersRef.current).forEach(userId => {
-            const peer = peersRef.current[userId];
-            const sender = peer.getSenders().find(s => s.track && s.track.kind === 'video');
-            if (sender && videoTrack) sender.replaceTrack(videoTrack);
-        });
+        const videoTrack = localStream?.getVideoTracks?.()[0];
 
         setIsScreenSharing(false);
         setIsCamOn(videoTrack ? videoTrack.enabled : false);
@@ -403,6 +522,9 @@ export default function Meeting() {
             const { data: publicData } = supabase.storage
                 .from('recordings')
                 .getPublicUrl(fileName);
+
+            const token = await getValidToken();
+            if (!token) throw new Error('Session expired. Please log in again.');
 
             const res = await fetch(`${API_URL}/recordings/save-metadata`, {
                 method: 'POST',
@@ -513,16 +635,37 @@ export default function Meeting() {
                         )}
 
                         {/* Remote Videos */}
-                        {Object.entries(remoteStreams).map(([peerId, stream]) => (
-                            <div key={peerId} className="video-wrapper">
-                                <video
-                                    autoPlay
-                                    playsInline
-                                    ref={el => { if (el) el.srcObject = stream }}
-                                />
-                                <div className="video-name">Participant</div>
-                            </div>
-                        ))}
+                        {Object.entries(remoteParticipants).flatMap(([peerId, participant]) => {
+                            const tiles = [];
+
+                            if (participant.screenStream) {
+                                tiles.push(
+                                    <div key={`${peerId}-screen`} className="video-wrapper screen-share-tile">
+                                        <video
+                                            autoPlay
+                                            playsInline
+                                            ref={el => { if (el) el.srcObject = participant.screenStream }}
+                                        />
+                                        <div className="video-name">Participant Screen</div>
+                                    </div>
+                                );
+                            }
+
+                            if (participant.cameraStream) {
+                                tiles.push(
+                                    <div key={`${peerId}-camera`} className="video-wrapper">
+                                        <video
+                                            autoPlay
+                                            playsInline
+                                            ref={el => { if (el) el.srcObject = participant.cameraStream }}
+                                        />
+                                        <div className="video-name">Participant</div>
+                                    </div>
+                                );
+                            }
+
+                            return tiles;
+                        })}
                     </div>
 
                     {/* Controls Bar */}

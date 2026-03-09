@@ -5,13 +5,16 @@ import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../config';
 
 export default function Recordings() {
-    const { user, token } = useAuth();
+    const { user, getValidToken } = useAuth();
     const [recordings, setRecordings] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchRecordings = async () => {
             try {
+                const token = await getValidToken();
+                if (!token) throw new Error('Session expired. Please log in again.');
+
                 const res = await fetch(`${API_URL}/recordings/my-recordings`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -30,7 +33,7 @@ export default function Recordings() {
         };
 
         fetchRecordings();
-    }, [user.id, token]);
+    }, [user.id, getValidToken]);
 
     return (
         <>

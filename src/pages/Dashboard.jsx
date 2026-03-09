@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../config';
 
 export default function Dashboard() {
-    const { user, token, logout } = useAuth();
+    const { user, logout, getValidToken } = useAuth();
     const [roomCode, setRoomCode] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
@@ -13,6 +13,9 @@ export default function Dashboard() {
     const handleCreateRoom = async () => {
         setLoading(true);
         try {
+            const token = await getValidToken();
+            if (!token) throw new Error('Session expired. Please log in again.');
+
             const res = await fetch(`${API_URL}/rooms/create`, {
                 method: 'POST',
                 headers: {
@@ -43,6 +46,9 @@ export default function Dashboard() {
 
         setLoading(true);
         try {
+            const token = await getValidToken();
+            if (!token) throw new Error('Session expired. Please log in again.');
+
             const res = await fetch(`${API_URL}/rooms/${roomCode.trim()}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`

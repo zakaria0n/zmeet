@@ -1,48 +1,107 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { supabase } from '../config';
 
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
 function loadStoredAuth() {
-    const storedToken = localStorage.getItem('zmeet_token');
     const storedUser = localStorage.getItem('zmeet_user');
+    const storedSession = localStorage.getItem('zmeet_session');
+    const legacyToken = localStorage.getItem('zmeet_token');
 
-    if (!storedToken || !storedUser) {
-        return { user: null, token: null };
+    if (!storedUser) {
+        return { user: null, session: null };
     }
 
     try {
         return {
-            token: storedToken,
-            user: JSON.parse(storedUser)
+            user: JSON.parse(storedUser),
+            session: storedSession ? JSON.parse(storedSession) : (legacyToken ? { access_token: legacyToken } : null)
         };
     } catch (e) {
         console.error("Failed to parse user", e);
-        localStorage.removeItem('zmeet_token');
         localStorage.removeItem('zmeet_user');
-        return { user: null, token: null };
+        localStorage.removeItem('zmeet_session');
+        localStorage.removeItem('zmeet_token');
+        return { user: null, session: null };
     }
 }
 
 export const AuthProvider = ({ children }) => {
-    const [{ user, token }, setAuth] = useState(loadStoredAuth);
+    const [{ user, session }, setAuth] = useState(loadStoredAuth);
 
-    const login = (newUser, newToken) => {
-        localStorage.setItem('zmeet_token', newToken);
-        localStorage.setItem('zmeet_user', JSON.stringify(newUser));
-        setAuth({ user: newUser, token: newToken });
+    useEffect(() => {
+        if (session?.access_token && session?.refresh_token) {
+            supabase.auth.setSession({
+                access_token: session.access_token,
+                refresh_token: session.refresh_token
+            }).catch((error) => {
+                console.error('Failed to restore auth session', error);
+            });
+        }
+    }, [session]);
+
+    const persistAuth = (nextUser, nextSession) => {
+        localStorage.setItem('zmeet_user', JSON.stringify(nextUser));
+
+        if (nextSession) {
+            localStorage.setItem('zmeet_session', JSON.stringify(nextSession));
+            localStorage.setItem('zmeet_token', nextSession.access_token);
+        } else {
+            localStorage.removeItem('zmeet_session');
+            localStorage.removeItem('zmeet_token');
+        }
+
+        setAuth({ user: nextUser, session: nextSession });
     };
 
-    const logout = () => {
-        localStorage.removeItem('zmeet_token');
+    const login = useCallback((newUser, newSession) => {
+        persistAuth(newUser, newSession);
+    }, []);
+
+    const logout = useCallback(() => {
         localStorage.removeItem('zmeet_user');
-        setAuth({ user: null, token: null });
-    };
+        localStorage.removeItem('zmeet_session');
+        localStorage.removeItem('zmeet_token');
+        setAuth({ user: null, session: null });
+    }, []);
+
+    const getValidToken = useCallback(async () => {
+        if (!session?.access_token) {
+            return null;
+        }
+
+        if (!session.refresh_token || !session.expires_at) {
+            return session.access_token;
+        }
+
+        const nowInSeconds = Math.floor(Date.now() / 1000);
+        const hasExpired = session.expires_at <= nowInSeconds + 60;
+
+        if (!hasExpired) {
+            return session.access_token;
+        }
+
+        const { data, error } = await supabase.auth.refreshSession({
+            refresh_token: session.refresh_token
+        });
+
+        if (error || !data.session) {
+            console.error('Failed to refresh auth session', error);
+            logout();
+            return null;
+        }
+
+        persistAuth(user, data.session);
+        return data.session.access_token;
+    }, [logout, session, user]);
+
+    const token = session?.access_token || null;
 
     return (
-        <AuthContext.Provider value={{ user, token, loading: false, login, logout }}>
+        <AuthContext.Provider value={{ user, token, session, loading: false, login, logout, getValidToken }}>
             {children}
         </AuthContext.Provider>
     );
