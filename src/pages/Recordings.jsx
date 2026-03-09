@@ -8,6 +8,7 @@ export default function Recordings() {
     const { user, getValidToken } = useAuth();
     const [recordings, setRecordings] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [deletingId, setDeletingId] = useState(null);
 
     useEffect(() => {
         const fetchRecordings = async () => {
@@ -34,6 +35,31 @@ export default function Recordings() {
 
         fetchRecordings();
     }, [user.id, getValidToken]);
+
+    const handleDeleteRecording = async (recordingId) => {
+        try {
+            setDeletingId(recordingId);
+            const token = await getValidToken();
+            if (!token) throw new Error('Session expired. Please log in again.');
+
+            const res = await fetch(`${API_URL}/recordings/${recordingId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to delete recording');
+
+            setRecordings(prev => prev.filter(recording => recording.id !== recordingId));
+            toast.success('Recording deleted');
+        } catch (err) {
+            toast.error(`Delete failed: ${err.message}`);
+        } finally {
+            setDeletingId(null);
+        }
+    };
 
     return (
         <>
@@ -69,6 +95,15 @@ export default function Recordings() {
                                 <a href={rec.file_url} download target="_blank" rel="noreferrer" className="btn primary-btn" style={{ marginTop: '10px' }}>
                                     Download Video
                                 </a>
+                                <button
+                                    type="button"
+                                    className="btn danger-btn"
+                                    style={{ marginTop: '8px' }}
+                                    disabled={deletingId === rec.id}
+                                    onClick={() => handleDeleteRecording(rec.id)}
+                                >
+                                    {deletingId === rec.id ? 'Deleting...' : 'Delete Video'}
+                                </button>
                             </div>
                         ))}
                     </div>
