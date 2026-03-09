@@ -252,6 +252,21 @@ export default function Meeting() {
         }
     };
 
+    const addTrackToPeers = async (track, stream) => {
+        const peerIds = Object.keys(peersRef.current);
+
+        for (const peerId of peerIds) {
+            const { connection } = ensurePeerConnection(peerId);
+            const alreadyAdded = connection.getSenders().some(sender => sender.track?.id === track.id);
+
+            if (!alreadyAdded) {
+                connection.addTrack(track, stream);
+            }
+
+            await negotiateWithPeer(peerId);
+        }
+    };
+
     const initializeLocalMedia = async () => {
         setIsPreparingMedia(true);
         setMediaError('');
@@ -272,6 +287,47 @@ export default function Meeting() {
             return null;
         } finally {
             setIsPreparingMedia(false);
+        }
+    };
+
+    const ensureLocalTrack = async (kind) => {
+        const stream = localStreamRef.current;
+        const existingTrack = stream?.getTracks().find(track => track.kind === kind);
+
+        if (existingTrack) {
+            syncTrackState(existingTrack, true);
+            return existingTrack;
+        }
+
+        try {
+            const extraStream = await navigator.mediaDevices.getUserMedia({
+                video: kind === 'video',
+                audio: kind === 'audio'
+            });
+
+            let nextStream = localStreamRef.current;
+
+            if (!nextStream) {
+                nextStream = new MediaStream();
+            }
+
+            extraStream.getTracks().forEach(track => {
+                nextStream.addTrack(track);
+            });
+
+            localStreamRef.current = nextStream;
+            setLocalStream(nextStream);
+
+            const addedTrack = nextStream.getTracks().find(track => track.kind === kind);
+            if (addedTrack) {
+                await addTrackToPeers(addedTrack, nextStream);
+            }
+
+            return addedTrack || null;
+        } catch (error) {
+            console.error(`Failed to get ${kind} track`, error);
+            toast.error(`Could not enable ${kind === 'video' ? 'camera' : 'microphone'}.`);
+            return null;
         }
     };
 
@@ -387,30 +443,52 @@ export default function Meeting() {
 
     // Controls Logic
     const toggleMic = () => {
-        if (localStream) {
-            const audioTrack = localStream.getAudioTracks()[0];
+        const run = async () => {
+            const audioTrack = localStreamRef.current?.getAudioTracks?.()[0];
+
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 setIsMicOn(audioTrack.enabled);
                 return;
             }
-        }
 
-        setIsMicOn(prev => !prev);
+            const nextEnabled = !isMicOn;
+            setIsMicOn(nextEnabled);
+
+            if (hasJoinedMeeting && nextEnabled) {
+                const createdTrack = await ensureLocalTrack('audio');
+                if (!createdTrack) {
+                    setIsMicOn(false);
+                }
+            }
+        };
+
+        run();
     };
 
     const toggleCam = () => {
-        if (localStream) {
-            const videoTrack = localStream.getVideoTracks()[0];
+        const run = async () => {
+            const videoTrack = localStreamRef.current?.getVideoTracks?.()[0];
+
             if (videoTrack) {
                 const enabled = !videoTrack.enabled;
                 syncTrackState(videoTrack, enabled);
                 setIsCamOn(enabled);
                 return;
             }
-        }
 
-        setIsCamOn(prev => !prev);
+            const nextEnabled = !isCamOn;
+            setIsCamOn(nextEnabled);
+
+            if (hasJoinedMeeting && nextEnabled) {
+                const createdTrack = await ensureLocalTrack('video');
+                if (!createdTrack) {
+                    setIsCamOn(false);
+                }
+            }
+        };
+
+        run();
     };
 
     const toggleScreenShare = async () => {
