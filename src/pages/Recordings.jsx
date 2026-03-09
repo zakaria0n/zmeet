@@ -65,7 +65,14 @@ export default function Recordings() {
     const handleDownloadRecording = async (recording) => {
         try {
             setDownloadingId(recording.id);
-            const response = await fetch(recording.file_url);
+            const token = await getValidToken();
+            if (!token) throw new Error('Session expired. Please log in again.');
+
+            const response = await fetch(`${API_URL}/recordings/${recording.id}/download`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
 
             if (!response.ok) {
                 throw new Error('Failed to download recording');
