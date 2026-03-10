@@ -64,9 +64,21 @@ export default function Meeting() {
         setRemoteParticipants(prev => ({
             ...prev,
             [userId]: {
+                name: prev[userId]?.name || 'Participant',
                 cameraStream: prev[userId]?.cameraStream || null,
                 screenStream: prev[userId]?.screenStream || null,
                 [slot]: stream
+            }
+        }));
+    };
+
+    const registerParticipant = (userId, userName = 'Participant') => {
+        setRemoteParticipants(prev => ({
+            ...prev,
+            [userId]: {
+                name: prev[userId]?.name || userName,
+                cameraStream: prev[userId]?.cameraStream || null,
+                screenStream: prev[userId]?.screenStream || null
             }
         }));
     };
@@ -172,7 +184,8 @@ export default function Meeting() {
         const connection = new RTCPeerConnection(configuration);
         const peerRecord = {
             connection,
-            makingOffer: false
+            makingOffer: false,
+            pendingCandidates: []
         };
 
         connection.onicecandidate = (event) => {
@@ -230,6 +243,23 @@ export default function Meeting() {
             console.error('Error creating offer', error);
         } finally {
             peerRecord.makingOffer = false;
+        }
+    };
+
+    const flushPendingCandidates = async (peerRecord) => {
+        if (!peerRecord.pendingCandidates.length) {
+            return;
+        }
+
+        const queuedCandidates = [...peerRecord.pendingCandidates];
+        peerRecord.pendingCandidates = [];
+
+        for (const candidate of queuedCandidates) {
+            try {
+                await peerRecord.connection.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (error) {
+                console.error('Error applying queued ICE candidate', error);
+            }
         }
     };
 
@@ -389,6 +419,7 @@ export default function Meeting() {
 
         socket.on('existing-users', async (existingUsers) => {
             for (const participant of existingUsers || []) {
+                registerParticipant(participant.userId, participant.userName);
                 ensurePeerConnection(participant.userId);
 
                 if (shouldInitiateConnection(participant.userId)) {
@@ -399,6 +430,7 @@ export default function Meeting() {
 
         socket.on('user-connected', async ({ userId: remoteUserId, userName }) => {
             toast(`${userName} joined the room`);
+            registerParticipant(remoteUserId, userName);
             ensurePeerConnection(remoteUserId);
 
             if (shouldInitiateConnection(remoteUserId)) {
@@ -420,6 +452,7 @@ export default function Meeting() {
                 }
 
                 await connection.setRemoteDescription(new RTCSessionDescription(offer));
+                await flushPendingCandidates(peerRecord);
                 const answer = await connection.createAnswer();
                 await connection.setLocalDescription(answer);
 
@@ -445,6 +478,7 @@ export default function Meeting() {
 
             try {
                 await peerRecord.connection.setRemoteDescription(new RTCSessionDescription(answer));
+                await flushPendingCandidates(peerRecord);
             } catch (error) {
                 console.error('Error setting remote description on answer', error);
             }
@@ -461,6 +495,11 @@ export default function Meeting() {
             }
 
             try {
+                if (!peerRecord.connection.remoteDescription) {
+                    peerRecord.pendingCandidates.push(candidate);
+                    return;
+                }
+
                 await peerRecord.connection.addIceCandidate(new RTCIceCandidate(candidate));
             } catch (error) {
                 console.error('Error adding received ICE candidate', error);
@@ -591,7 +630,7 @@ export default function Meeting() {
         const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
         const fileName = `${roomId}-${Date.now()}.webm`;
 
-        toast('Uploading recording...', { icon: '⏳' });
+        toast('Uploading recording...', { icon: '...' });
 
         try {
             const { error } = await supabase.storage
@@ -847,7 +886,21 @@ export default function Meeting() {
                                 tiles.push(
                                     <div key={`${peerId}-camera`} className="video-wrapper">
                                         <MediaStreamVideo stream={participant.cameraStream} />
-                                        <div className="video-name">Participant</div>
+                                        <div className="video-name">{participant.name}</div>
+                                    </div>
+                                );
+                            }
+
+                            if (!participant.cameraStream && !participant.screenStream) {
+                                tiles.push(
+                                    <div key={`${peerId}-placeholder`} className="video-wrapper">
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', color: 'var(--text-muted)' }}>
+                                            <div style={{ width: '72px', height: '72px', borderRadius: '999px', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', color: 'white' }}>
+                                                {(participant.name || 'P').slice(0, 1).toUpperCase()}
+                                            </div>
+                                            <span>{participant.name}</span>
+                                        </div>
+                                        <div className="video-name">{participant.name}</div>
                                     </div>
                                 );
                             }

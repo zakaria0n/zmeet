@@ -12,13 +12,22 @@ export default function MediaStreamVideo({ stream, muted = false, className = ''
 
         videoElement.srcObject = stream || null;
 
-        if (stream) {
+        const tryPlay = () => {
             videoElement.play().catch(() => {
-                // Browsers can reject autoplay during mount transitions. The stream is still attached.
+                // Remote media can be blocked by autoplay policy until the user interacts again.
             });
+        };
+
+        if (stream) {
+            if (videoElement.readyState >= 1) {
+                tryPlay();
+            } else {
+                videoElement.onloadedmetadata = tryPlay;
+            }
         }
 
         return () => {
+            videoElement.onloadedmetadata = null;
             if (videoElement.srcObject === stream) {
                 videoElement.srcObject = null;
             }
