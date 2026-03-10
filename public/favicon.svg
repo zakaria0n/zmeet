@@ -1,0 +1,33 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2EE6FF"/>
+      <stop offset="0.52" stop-color="#6B4CFF"/>
+      <stop offset="1" stop-color="#D56BFF"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="160" y1="48" x2="224" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#79F2FF"/>
+      <stop offset="1" stop-color="#B26BFF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="64" fill="#070A12"/>
+
+  <path
+    d="M40 82C40 60.461 57.461 43 79 43H153C182.271 43 206 66.729 206 96V132C206 161.271 182.271 185 153 185H120L93 214V185H79C57.461 185 40 167.539 40 146V82Z"
+    fill="url(#bg)"
+  />
+
+  <path
+    d="M90 88H156V103L116 142H156V157H90V142L130 103H90V88Z"
+    fill="#070A12"
+  />
+
+  <path
+    d="M206 101L228 87C233.991 83.188 241.75 87.49 241.75 94.59V133.41C241.75 140.51 233.991 144.812 228 141L206 127V101Z"
+    fill="url(#bg)"
+  />
+
+  <path d="M178 46C192.45 50.728 204.715 60.314 212 73" stroke="url(#wave)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M171 67C179.91 70.143 187.493 76.111 192.5 84" stroke="url(#wave)" stroke-width="10" stroke-linecap="round"/>
+</svg>
