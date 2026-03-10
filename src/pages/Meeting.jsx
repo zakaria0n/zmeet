@@ -17,7 +17,7 @@ import {
 import MeetingLobby from '../components/MeetingLobby';
 import MediaStreamVideo from '../components/MediaStreamVideo';
 import { useAuth } from '../context/AuthContext';
-import { API_URL, ICE_SERVERS, SOCKET_URL, TURN_URL, supabase } from '../config';
+import { API_URL, ICE_SERVERS, SOCKET_URL, supabase } from '../config';
 
 const configuration = {
     iceServers: ICE_SERVERS
@@ -53,7 +53,6 @@ export default function Meeting() {
     const audioContextRef = useRef(null);
     const reactionTimeoutsRef = useRef([]);
     const remoteParticipantsRef = useRef({});
-    const turnWarningShownRef = useRef(false);
 
     const isTargetedToCurrentUser = (target) => !target || target === user.id;
     const isPolitePeer = (remoteUserId) => user.id.localeCompare(remoteUserId) > 0;
@@ -200,6 +199,7 @@ export default function Meeting() {
             pendingCandidates: [],
             ignoreOffer: false,
             isSettingRemoteAnswerPending: false,
+            needsNegotiation: false,
             polite: isPolitePeer(remoteUserId)
         };
 
@@ -221,6 +221,21 @@ export default function Meeting() {
             if (['failed', 'closed'].includes(connection.connectionState)) {
                 removeParticipant(remoteUserId);
             }
+        };
+
+        connection.onsignalingstatechange = () => {
+            if (connection.signalingState === 'stable' && peerRecord.needsNegotiation) {
+                peerRecord.needsNegotiation = false;
+                requestNegotiation(remoteUserId).catch(error => {
+                    console.error('Error running deferred negotiation', error);
+                });
+            }
+        };
+
+        connection.onnegotiationneeded = () => {
+            requestNegotiation(remoteUserId).catch(error => {
+                console.error('Error running negotiationneeded handler', error);
+            });
         };
 
         getLocalMediaStreamsForPeer().forEach(stream => {
@@ -265,6 +280,17 @@ export default function Meeting() {
         }
     };
 
+    const requestNegotiation = async (remoteUserId) => {
+        const peerRecord = ensurePeerConnection(remoteUserId);
+
+        if (peerRecord.makingOffer || peerRecord.connection.signalingState !== 'stable') {
+            peerRecord.needsNegotiation = true;
+            return;
+        }
+
+        await negotiateWithPeer(remoteUserId);
+    };
+
     const flushPendingCandidates = async (peerRecord) => {
         if (!peerRecord.pendingCandidates.length) {
             return;
@@ -304,7 +330,7 @@ export default function Meeting() {
                 connection.addTrack(track, stream);
             }
 
-            await negotiateWithPeer(peerId);
+            await requestNegotiation(peerId);
         }
     };
 
@@ -317,7 +343,7 @@ export default function Meeting() {
                 peerRecord.connection.removeTrack(sender);
             }
 
-            await negotiateWithPeer(peerId);
+            await requestNegotiation(peerId);
         }
     };
 
@@ -460,13 +486,7 @@ export default function Meeting() {
         socket.on('user-connected', async ({ userId: remoteUserId, userName }) => {
             toast(`${userName} joined the room`);
             registerParticipant(remoteUserId, userName);
-
-            if (!TURN_URL && !turnWarningShownRef.current) {
-                turnWarningShownRef.current = true;
-                toast.error('TURN server not configured. Camera and screen share may fail between different networks.');
-            }
-
-            await negotiateWithPeer(remoteUserId);
+            await requestNegotiation(remoteUserId);
         });
 
         socket.on('webrtc-offer', async ({ offer, senderId, target }) => {
@@ -497,6 +517,7 @@ export default function Meeting() {
                 await flushPendingCandidates(peerRecord);
                 const answer = await connection.createAnswer();
                 await connection.setLocalDescription(answer);
+                peerRecord.needsNegotiation = false;
 
                 socket.emit('webrtc-answer', {
                     roomId,
