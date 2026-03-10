@@ -90,7 +90,7 @@ export default function Auth() {
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
+                            placeholder="********"
                         />
                     </div>
 
