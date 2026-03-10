@@ -17,10 +17,10 @@ import {
 import MeetingLobby from '../components/MeetingLobby';
 import MediaStreamVideo from '../components/MediaStreamVideo';
 import { useAuth } from '../context/AuthContext';
-import { API_URL, SOCKET_URL, supabase } from '../config';
+import { API_URL, ICE_SERVERS, SOCKET_URL, supabase } from '../config';
 
 const configuration = {
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    iceServers: ICE_SERVERS
 };
 
 export default function Meeting() {
@@ -55,7 +55,7 @@ export default function Meeting() {
     const remoteParticipantsRef = useRef({});
 
     const isTargetedToCurrentUser = (target) => !target || target === user.id;
-    const shouldInitiateConnection = (remoteUserId) => user.id.localeCompare(remoteUserId) > 0;
+    const isPolitePeer = (remoteUserId) => user.id.localeCompare(remoteUserId) > 0;
 
     const syncTrackState = (track, enabled) => {
         if (track) {
@@ -196,7 +196,10 @@ export default function Meeting() {
         const peerRecord = {
             connection,
             makingOffer: false,
-            pendingCandidates: []
+            pendingCandidates: [],
+            ignoreOffer: false,
+            isSettingRemoteAnswerPending: false,
+            polite: isPolitePeer(remoteUserId)
         };
 
         connection.onicecandidate = (event) => {
@@ -236,12 +239,16 @@ export default function Meeting() {
         const peerRecord = ensurePeerConnection(remoteUserId);
         const { connection } = peerRecord;
 
-        if (peerRecord.makingOffer || connection.signalingState !== 'stable') {
+        if (peerRecord.makingOffer) {
             return;
         }
 
         try {
             peerRecord.makingOffer = true;
+            if (connection.signalingState !== 'stable') {
+                return;
+            }
+
             const offer = await connection.createOffer();
             await connection.setLocalDescription(offer);
 
@@ -446,21 +453,13 @@ export default function Meeting() {
             for (const participant of existingUsers || []) {
                 registerParticipant(participant.userId, participant.userName);
                 ensurePeerConnection(participant.userId);
-
-                if (shouldInitiateConnection(participant.userId)) {
-                    await negotiateWithPeer(participant.userId);
-                }
             }
         });
 
         socket.on('user-connected', async ({ userId: remoteUserId, userName }) => {
             toast(`${userName} joined the room`);
             registerParticipant(remoteUserId, userName);
-            ensurePeerConnection(remoteUserId);
-
-            if (shouldInitiateConnection(remoteUserId)) {
-                await negotiateWithPeer(remoteUserId);
-            }
+            await negotiateWithPeer(remoteUserId);
         });
 
         socket.on('webrtc-offer', async ({ offer, senderId, target }) => {
@@ -470,13 +469,24 @@ export default function Meeting() {
 
             const peerRecord = ensurePeerConnection(senderId);
             const { connection } = peerRecord;
+            const readyForOffer = !peerRecord.makingOffer
+                && (connection.signalingState === 'stable' || peerRecord.isSettingRemoteAnswerPending);
+            const offerCollision = !readyForOffer;
+            peerRecord.ignoreOffer = !peerRecord.polite && offerCollision;
+
+            if (peerRecord.ignoreOffer) {
+                return;
+            }
 
             try {
-                if (connection.signalingState === 'have-local-offer') {
+                peerRecord.isSettingRemoteAnswerPending = offer.type === 'answer';
+
+                if (offerCollision && connection.signalingState === 'have-local-offer') {
                     await connection.setLocalDescription({ type: 'rollback' });
                 }
 
                 await connection.setRemoteDescription(new RTCSessionDescription(offer));
+                peerRecord.isSettingRemoteAnswerPending = false;
                 await flushPendingCandidates(peerRecord);
                 const answer = await connection.createAnswer();
                 await connection.setLocalDescription(answer);
@@ -503,6 +513,7 @@ export default function Meeting() {
 
             try {
                 await peerRecord.connection.setRemoteDescription(new RTCSessionDescription(answer));
+                peerRecord.ignoreOffer = false;
                 await flushPendingCandidates(peerRecord);
             } catch (error) {
                 console.error('Error setting remote description on answer', error);
