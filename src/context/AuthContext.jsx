@@ -31,16 +31,29 @@ function loadStoredAuth() {
 
 export const AuthProvider = ({ children }) => {
     const [{ user, session }, setAuth] = useState(loadStoredAuth);
+    const [loading, setLoading] = useState(Boolean(session?.access_token && session?.refresh_token));
 
     useEffect(() => {
+        let cancelled = false;
+
         if (session?.access_token && session?.refresh_token) {
             supabase.auth.setSession({
                 access_token: session.access_token,
                 refresh_token: session.refresh_token
             }).catch((error) => {
                 console.error('Failed to restore auth session', error);
+            }).finally(() => {
+                if (!cancelled) {
+                    setLoading(false);
+                }
             });
+        } else {
+            setLoading(false);
         }
+
+        return () => {
+            cancelled = true;
+        };
     }, [session]);
 
     const persistAuth = (nextUser, nextSession) => {
@@ -101,7 +114,7 @@ export const AuthProvider = ({ children }) => {
     const token = session?.access_token || null;
 
     return (
-        <AuthContext.Provider value={{ user, token, session, loading: false, login, logout, getValidToken }}>
+        <AuthContext.Provider value={{ user, token, session, loading, login, logout, getValidToken }}>
             {children}
         </AuthContext.Provider>
     );

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import MeetingLobby from '../components/MeetingLobby';
+import MediaStreamAudio from '../components/MediaStreamAudio';
 import MediaStreamVideo from '../components/MediaStreamVideo';
 import { useAuth } from '../context/AuthContext';
 import { API_URL, ICE_SERVERS, SOCKET_URL, supabase } from '../config';
@@ -46,7 +47,7 @@ export default function Meeting() {
     const socketRef = useRef(null);
     const peersRef = useRef({});
     const remoteStreamSlotsRef = useRef({});
-    const remoteTrackStreamsRef = useRef({});
+    const remoteSlotStreamsRef = useRef({});
     const pendingIceByUserRef = useRef({});
     const localStreamRef = useRef(null);
     const screenStreamRef = useRef(null);
@@ -70,6 +71,7 @@ export default function Meeting() {
             ...prev,
             [userId]: {
                 name: prev[userId]?.name || 'Participant',
+                audioStream: prev[userId]?.audioStream || null,
                 cameraStream: prev[userId]?.cameraStream || null,
                 screenStream: prev[userId]?.screenStream || null,
                 [slot]: stream
@@ -82,6 +84,7 @@ export default function Meeting() {
             ...prev,
             [userId]: {
                 name: prev[userId]?.name || userName,
+                audioStream: prev[userId]?.audioStream || null,
                 cameraStream: prev[userId]?.cameraStream || null,
                 screenStream: prev[userId]?.screenStream || null
             }
@@ -102,7 +105,7 @@ export default function Meeting() {
 
             const nextParticipant = { ...participant, [slot]: null };
 
-            if (!nextParticipant.cameraStream && !nextParticipant.screenStream) {
+            if (!nextParticipant.audioStream && !nextParticipant.cameraStream && !nextParticipant.screenStream) {
                 const next = { ...prev };
                 delete next[userId];
                 return next;
@@ -117,7 +120,7 @@ export default function Meeting() {
 
     const removeParticipant = (userId) => {
         delete remoteStreamSlotsRef.current[userId];
-        delete remoteTrackStreamsRef.current[userId];
+        delete remoteSlotStreamsRef.current[userId];
         delete pendingIceByUserRef.current[userId];
 
         setRemoteParticipants(prev => {
@@ -130,68 +133,69 @@ export default function Meeting() {
     const attachTrackEndedHandler = (userId, slot, track, streamId) => {
         track.onended = () => {
             const slots = remoteStreamSlotsRef.current[userId];
-            const trackStreams = remoteTrackStreamsRef.current[userId];
+            const slotStreams = remoteSlotStreamsRef.current[userId];
 
             if (slots?.[slot] === streamId) {
                 delete slots[slot];
             }
 
-            if (trackStreams?.[track.id]) {
-                delete trackStreams[track.id];
+            if (slotStreams?.[slot]?.id === streamId) {
+                delete slotStreams[slot];
             }
 
             clearParticipantStream(userId, slot);
         };
     };
 
-    const getRemoteMediaStream = (userId, track, incomingStream) => {
-        if (incomingStream) {
-            return incomingStream;
+    const getRemoteSlotStream = (userId, slot, track, incomingStream) => {
+        const streamHasMatchingTrack = incomingStream?.getTracks().some(currentTrack => currentTrack.id === track.id);
+        const usableIncomingStream = streamHasMatchingTrack ? incomingStream : null;
+
+        if (!remoteSlotStreamsRef.current[userId]) {
+            remoteSlotStreamsRef.current[userId] = {};
         }
 
-        if (!remoteTrackStreamsRef.current[userId]) {
-            remoteTrackStreamsRef.current[userId] = {};
-        }
-
-        const existingStream = remoteTrackStreamsRef.current[userId][track.id];
+        const existingStream = remoteSlotStreamsRef.current[userId][slot];
         if (existingStream) {
+            const hasTrack = existingStream.getTracks().some(currentTrack => currentTrack.id === track.id);
+
+            if (!hasTrack) {
+                existingStream.addTrack(track);
+            }
+
             return existingStream;
         }
 
-        const nextStream = new MediaStream([track]);
-        remoteTrackStreamsRef.current[userId][track.id] = nextStream;
+        const nextStream = usableIncomingStream || new MediaStream([track]);
+        remoteSlotStreamsRef.current[userId][slot] = nextStream;
         return nextStream;
     };
 
-    const registerRemoteTrack = (userId, track, stream, transceiverMid) => {
-        if (track.kind !== 'video') {
+    const getSlotFromTransceiver = (peerRecord, transceiver, trackKind) => {
+        if (trackKind === 'audio') {
+            return 'audioStream';
+        }
+
+        if (transceiver === peerRecord.transceivers.camera) {
+            return 'cameraStream';
+        }
+
+        if (transceiver === peerRecord.transceivers.screen) {
+            return 'screenStream';
+        }
+
+        return null;
+    };
+
+    const registerRemoteTrack = (userId, peerRecord, track, stream, transceiver) => {
+        const slot = getSlotFromTransceiver(peerRecord, transceiver, track.kind);
+
+        if (!slot) {
             return;
         }
 
-        const resolvedStream = getRemoteMediaStream(userId, track, stream);
+        const resolvedStream = getRemoteSlotStream(userId, slot, track, stream);
         const slots = remoteStreamSlotsRef.current[userId] || {};
-        const participant = remoteParticipantsRef.current[userId];
-        let slot = 'camera';
-
-        if (transceiverMid && slots[transceiverMid]) {
-            slot = slots[transceiverMid];
-        } else if (track.label.toLowerCase().includes('screen') || track.label.toLowerCase().includes('display')) {
-            slot = 'screen';
-        } else if (slots.camera === resolvedStream.id) {
-            slot = 'camera';
-        } else if (slots.screen === resolvedStream.id) {
-            slot = 'screen';
-        } else if (participant?.cameraStream && !participant?.screenStream) {
-            slot = 'screen';
-        } else if (!slots.camera) {
-            slot = 'camera';
-        } else {
-            slot = 'screen';
-        }
-
-        if (transceiverMid) {
-            slots[transceiverMid] = slot;
-        }
         slots[slot] = resolvedStream.id;
         remoteStreamSlotsRef.current[userId] = slots;
         setParticipantStream(userId, slot, resolvedStream);
@@ -207,18 +211,14 @@ export default function Meeting() {
         syncTrackState(stream.getVideoTracks()[0], isCamOn);
     };
 
-    const getLocalMediaStreamsForPeer = () => {
-        const streams = [];
+    const syncLocalTracksToPeer = async (peerRecord) => {
+        const localAudioTrack = localStreamRef.current?.getAudioTracks?.()[0] || null;
+        const localCameraTrack = localStreamRef.current?.getVideoTracks?.()[0] || null;
+        const localScreenTrack = screenStreamRef.current?.getVideoTracks?.()[0] || null;
 
-        if (localStreamRef.current) {
-            streams.push(localStreamRef.current);
-        }
-
-        if (screenStreamRef.current) {
-            streams.push(screenStreamRef.current);
-        }
-
-        return streams;
+        await peerRecord.transceivers.audio.sender.replaceTrack(localAudioTrack);
+        await peerRecord.transceivers.camera.sender.replaceTrack(localCameraTrack);
+        await peerRecord.transceivers.screen.sender.replaceTrack(localScreenTrack);
     };
 
     const ensurePeerConnection = (remoteUserId) => {
@@ -227,8 +227,14 @@ export default function Meeting() {
         }
 
         const connection = new RTCPeerConnection(configuration);
+        const transceivers = {
+            audio: connection.addTransceiver('audio', { direction: 'sendrecv' }),
+            camera: connection.addTransceiver('video', { direction: 'sendrecv' }),
+            screen: connection.addTransceiver('video', { direction: 'sendrecv' })
+        };
         const peerRecord = {
             connection,
+            transceivers,
             makingOffer: false,
             pendingCandidates: pendingIceByUserRef.current[remoteUserId] || [],
             ignoreOffer: false,
@@ -250,7 +256,7 @@ export default function Meeting() {
         };
 
         connection.ontrack = (event) => {
-            registerRemoteTrack(remoteUserId, event.track, event.streams[0], event.transceiver?.mid);
+            registerRemoteTrack(remoteUserId, peerRecord, event.track, event.streams[0], event.transceiver);
         };
 
         connection.onconnectionstatechange = () => {
@@ -274,16 +280,10 @@ export default function Meeting() {
             });
         };
 
-        getLocalMediaStreamsForPeer().forEach(stream => {
-            stream.getTracks().forEach(track => {
-                const alreadyAdded = connection.getSenders().some(sender => sender.track?.id === track.id);
-                if (!alreadyAdded) {
-                    connection.addTrack(track, stream);
-                }
-            });
-        });
-
         peersRef.current[remoteUserId] = peerRecord;
+        syncLocalTracksToPeer(peerRecord).catch(error => {
+            console.error('Error syncing local tracks to peer', error);
+        });
         return peerRecord;
     };
 
@@ -357,28 +357,18 @@ export default function Meeting() {
         reactionTimeoutsRef.current.push(timeoutId);
     };
 
-    const addTrackToPeers = async (track, stream) => {
+    const addTrackToPeers = async (slot, track) => {
         for (const peerId of Object.keys(peersRef.current)) {
-            const { connection } = ensurePeerConnection(peerId);
-            const alreadyAdded = connection.getSenders().some(sender => sender.track?.id === track.id);
-
-            if (!alreadyAdded) {
-                connection.addTrack(track, stream);
-            }
-
+            const peerRecord = ensurePeerConnection(peerId);
+            await peerRecord.transceivers[slot].sender.replaceTrack(track);
             await requestNegotiation(peerId);
         }
     };
 
-    const removeTrackFromPeers = async (track) => {
+    const removeTrackFromPeers = async (slot) => {
         for (const peerId of Object.keys(peersRef.current)) {
             const peerRecord = peersRef.current[peerId];
-            const sender = peerRecord.connection.getSenders().find(currentSender => currentSender.track?.id === track?.id);
-
-            if (sender) {
-                peerRecord.connection.removeTrack(sender);
-            }
-
+            await peerRecord.transceivers[slot].sender.replaceTrack(null);
             await requestNegotiation(peerId);
         }
     };
@@ -444,7 +434,7 @@ export default function Meeting() {
 
             const addedTrack = nextStream.getTracks().find(track => track.kind === kind);
             if (addedTrack) {
-                await addTrackToPeers(addedTrack, nextStream);
+                await addTrackToPeers(kind === 'audio' ? 'audio' : 'camera', addedTrack);
             }
 
             return addedTrack || null;
@@ -573,11 +563,6 @@ export default function Meeting() {
 
             const peerRecord = peersRef.current[senderId];
             if (!peerRecord) {
-                if (!pendingIceByUserRef.current[senderId]) {
-                    pendingIceByUserRef.current[senderId] = [];
-                }
-
-                pendingIceByUserRef.current[senderId].push(candidate);
                 return;
             }
 
@@ -693,8 +678,7 @@ export default function Meeting() {
         const activeScreenStream = screenStreamRef.current;
 
         if (activeScreenStream) {
-            const track = activeScreenStream.getVideoTracks()[0];
-            removeTrackFromPeers(track).catch(error => {
+            removeTrackFromPeers('screen').catch(error => {
                 console.error('Error removing screen share track', error);
             });
 
@@ -725,7 +709,7 @@ export default function Meeting() {
             setIsScreenSharing(true);
 
             const track = stream.getVideoTracks()[0];
-            await addTrackToPeers(track, stream);
+            await addTrackToPeers('screen', track);
 
             track.onended = () => {
                 stopScreenShare();
@@ -744,7 +728,7 @@ export default function Meeting() {
         const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
         const fileName = `${roomId}-${Date.now()}.webm`;
 
-        toast('Uploading recording...', { icon: '...' });
+        toast('Uploading recording...');
 
         try {
             const { error } = await supabase.storage
@@ -1020,6 +1004,12 @@ export default function Meeting() {
 
                         {Object.entries(remoteParticipants).flatMap(([peerId, participant]) => {
                             const tiles = [];
+
+                            if (participant.audioStream) {
+                                tiles.push(
+                                    <MediaStreamAudio key={`${peerId}-audio`} stream={participant.audioStream} />
+                                );
+                            }
 
                             if (participant.screenStream) {
                                 tiles.push(
