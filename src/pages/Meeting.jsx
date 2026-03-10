@@ -46,6 +46,7 @@ export default function Meeting() {
     const socketRef = useRef(null);
     const peersRef = useRef({});
     const remoteStreamSlotsRef = useRef({});
+    const remoteTrackStreamsRef = useRef({});
     const localStreamRef = useRef(null);
     const screenStreamRef = useRef(null);
     const mediaRecorderRef = useRef(null);
@@ -115,6 +116,7 @@ export default function Meeting() {
 
     const removeParticipant = (userId) => {
         delete remoteStreamSlotsRef.current[userId];
+        delete remoteTrackStreamsRef.current[userId];
 
         setRemoteParticipants(prev => {
             const next = { ...prev };
@@ -126,42 +128,72 @@ export default function Meeting() {
     const attachTrackEndedHandler = (userId, slot, track, streamId) => {
         track.onended = () => {
             const slots = remoteStreamSlotsRef.current[userId];
+            const trackStreams = remoteTrackStreamsRef.current[userId];
 
             if (slots?.[slot] === streamId) {
                 delete slots[slot];
+            }
+
+            if (trackStreams?.[track.id]) {
+                delete trackStreams[track.id];
             }
 
             clearParticipantStream(userId, slot);
         };
     };
 
-    const registerRemoteTrack = (userId, track, stream) => {
-        if (track.kind !== 'video' || !stream) {
+    const getRemoteMediaStream = (userId, track, incomingStream) => {
+        if (incomingStream) {
+            return incomingStream;
+        }
+
+        if (!remoteTrackStreamsRef.current[userId]) {
+            remoteTrackStreamsRef.current[userId] = {};
+        }
+
+        const existingStream = remoteTrackStreamsRef.current[userId][track.id];
+        if (existingStream) {
+            return existingStream;
+        }
+
+        const nextStream = new MediaStream([track]);
+        remoteTrackStreamsRef.current[userId][track.id] = nextStream;
+        return nextStream;
+    };
+
+    const registerRemoteTrack = (userId, track, stream, transceiverMid) => {
+        if (track.kind !== 'video') {
             return;
         }
 
+        const resolvedStream = getRemoteMediaStream(userId, track, stream);
         const slots = remoteStreamSlotsRef.current[userId] || {};
         const participant = remoteParticipantsRef.current[userId];
         let slot = 'camera';
 
-        if (slots.camera === stream.id) {
+        if (transceiverMid && slots[transceiverMid]) {
+            slot = slots[transceiverMid];
+        } else if (track.label.toLowerCase().includes('screen') || track.label.toLowerCase().includes('display')) {
+            slot = 'screen';
+        } else if (slots.camera === resolvedStream.id) {
             slot = 'camera';
-        } else if (slots.screen === stream.id) {
+        } else if (slots.screen === resolvedStream.id) {
             slot = 'screen';
         } else if (participant?.cameraStream && !participant?.screenStream) {
-            slots.screen = stream.id;
             slot = 'screen';
         } else if (!slots.camera) {
-            slots.camera = stream.id;
             slot = 'camera';
         } else {
-            slots.screen = stream.id;
             slot = 'screen';
         }
 
+        if (transceiverMid) {
+            slots[transceiverMid] = slot;
+        }
+        slots[slot] = resolvedStream.id;
         remoteStreamSlotsRef.current[userId] = slots;
-        setParticipantStream(userId, slot, stream);
-        attachTrackEndedHandler(userId, slot, track, stream.id);
+        setParticipantStream(userId, slot, resolvedStream);
+        attachTrackEndedHandler(userId, slot, track, resolvedStream.id);
     };
 
     const applyPreferredTrackState = (stream) => {
@@ -214,7 +246,7 @@ export default function Meeting() {
         };
 
         connection.ontrack = (event) => {
-            registerRemoteTrack(remoteUserId, event.track, event.streams[0]);
+            registerRemoteTrack(remoteUserId, event.track, event.streams[0], event.transceiver?.mid);
         };
 
         connection.onconnectionstatechange = () => {
