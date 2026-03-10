@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Auth from './pages/Auth';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Meeting from './pages/Meeting';
 import Recordings from './pages/Recordings';
@@ -35,7 +36,9 @@ function App() {
       <Routes>
         <Route path="/auth" element={<Auth />} />
 
-        <Route path="/" element={
+        <Route path="/" element={<Home />} />
+        
+        <Route path="/dashboard" element={
           <PrivateRoute>
             <Dashboard />
           </PrivateRoute>

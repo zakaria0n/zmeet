@@ -839,15 +839,25 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border-radius: 20px;
+  border-radius: 16px;
+  background: #0f1015; /* Solid dark background */
+  border: 1px solid rgba(255, 255, 255, 0.05); /* Very subtle border */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.dashboard-feature-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  background: #13141a;
 }
 
 .dashboard-feature-kicker {
-  color: var(--accent-light);
-  font-size: 0.85rem;
+  color: #818cf8; /* Light blue/purple accent */
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
 }
 
 .dashboard-feature-card h3 {

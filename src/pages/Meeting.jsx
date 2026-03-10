@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
@@ -957,12 +957,12 @@ export default function Meeting() {
     return (
         <div className="meeting-wrapper">
             <header className="meeting-header">
-                <div className="logo" style={{ fontSize: '1.2rem' }}>
+                <Link to="/" className="logo" style={{ fontSize: '1.2rem', textDecoration: 'none' }}>
                     ZMeet
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 'normal', marginLeft: '10px' }}>
                         Room: {roomId}
                     </span>
-                </div>
+                </Link>
                 <button
                     onClick={() => setIsChatOpen(!isChatOpen)}
                     className="btn"

@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import Navbar from '../components/Navbar';
 import { API_URL } from '../config';
 
 export default function Auth() {
-    const [isLogin, setIsLogin] = useState(true);
+    const [searchParams] = useSearchParams();
+    const mode = searchParams.get('mode');
+    
+    const [isLogin, setIsLogin] = useState(mode !== 'signup');
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -13,6 +17,11 @@ export default function Auth() {
 
     const { login } = useAuth();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (mode === 'signup') setIsLogin(false);
+        else if (mode === 'login') setIsLogin(true);
+    }, [mode]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -37,7 +46,7 @@ export default function Auth() {
             if (isLogin) {
                 login(data.user, data.session);
                 toast.success("Logged in successfully!");
-                navigate('/');
+                navigate('/dashboard');
             } else {
                 toast.success("Account created successfully! Please log in.");
                 setIsLogin(true);
@@ -51,12 +60,20 @@ export default function Auth() {
     };
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-            <div className="glass-panel" style={{ width: '400px', padding: '40px' }}>
-                <h1 style={{ color: 'var(--accent)', fontSize: '2rem', marginBottom: '10px' }}>ZMeet</h1>
-                <h2 style={{ marginBottom: '30px', fontWeight: '500' }}>
-                    {isLogin ? 'Welcome Back' : 'Create Account'}
-                </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+            <Navbar />
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', position: 'relative' }}>
+                {/* Background glows */}
+                <div className="dashboard-orb orb-one" style={{ width: '400px', height: '400px', opacity: 0.3, top: '20%', left: '20%' }}></div>
+                <div className="dashboard-orb orb-two" style={{ width: '500px', height: '500px', opacity: 0.2, bottom: '20%', right: '20%' }}></div>
+
+                <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '40px', position: 'relative', zIndex: 10 }}>
+                    <h2 style={{ marginBottom: '8px', fontWeight: '700', fontSize: '1.8rem' }}>
+                        {isLogin ? 'Welcome back' : 'Create an account'}
+                    </h2>
+                    <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>
+                        {isLogin ? 'Enter your details to access your workspace' : 'Sign up to start hosting premium meetings'}
+                    </p>
 
                 <form onSubmit={handleSubmit}>
                     {!isLogin && (
@@ -99,15 +116,16 @@ export default function Auth() {
                     </button>
                 </form>
 
-                <p style={{ marginTop: '20px', textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                <p style={{ marginTop: '24px', textAlign: 'center', fontSize: '0.95rem', color: 'var(--text-muted)' }}>
                     {isLogin ? "Don't have an account? " : "Already have an account? "}
                     <span
                         onClick={() => setIsLogin(!isLogin)}
-                        style={{ color: 'var(--accent)', cursor: 'pointer' }}
+                        style={{ color: 'var(--accent-light)', cursor: 'pointer', fontWeight: '600' }}
                     >
                         {isLogin ? "Sign Up" : "Log In"}
                     </span>
                 </p>
+            </div>
             </div>
         </div>
     );

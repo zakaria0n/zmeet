@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import Navbar from '../components/Navbar';
 import { API_URL } from '../config';
 
 export default function Recordings() {
@@ -95,20 +95,17 @@ export default function Recordings() {
     };
 
     return (
-        <>
-            <header className="top-nav">
-                <Link to="/" className="logo" style={{ textDecoration: 'none' }}>ZMeet</Link>
-                <div className="user-menu" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                    <span>{user.name || user.email}</span>
-                    <Link to="/" className="btn" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)', padding: '6px 12px', fontSize: '0.85rem', color: 'white' }}>
-                        Back to Dashboard
-                    </Link>
-                </div>
-            </header>
+        <div className="dashboard-shell">
+            <div className="dashboard-orb orb-one" style={{ top: '-10%', left: '-5%', width: '500px', height: '500px', opacity: 0.3 }}></div>
+            <div className="dashboard-orb orb-two" style={{ bottom: '-10%', right: '-5%', width: '600px', height: '600px', opacity: 0.2 }}></div>
 
-            <main className="main-content" style={{ maxWidth: '1200px', margin: '0 auto' }}>
-                <h1 style={{ marginBottom: '10px' }}>My Recordings</h1>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>Access all the meetings you recorded previously.</p>
+            <Navbar />
+
+            <main className="main-content" style={{ maxWidth: '1200px', margin: '0 auto', position: 'relative', zIndex: 10 }}>
+                <div className="glass-panel" style={{ padding: '40px', marginBottom: '40px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <h1 style={{ fontSize: '2.5rem', fontWeight: '800', margin: 0 }}>My Recordings</h1>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: 0 }}>Access all the meetings you recorded previously.</p>
+                </div>
 
                 {loading ? (
                     <div style={{ color: 'var(--text-muted)' }}>Loading recordings...</div>
@@ -125,29 +122,29 @@ export default function Recordings() {
                                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
                                     Recorded on: {new Date(rec.created_at).toLocaleString()}
                                 </p>
-                                <button
-                                    type="button"
-                                    className="btn primary-btn"
-                                    style={{ marginTop: '10px' }}
-                                    disabled={downloadingId === rec.id}
-                                    onClick={() => handleDownloadRecording(rec)}
-                                >
-                                    {downloadingId === rec.id ? 'Downloading...' : 'Download Video'}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn danger-btn"
-                                    style={{ marginTop: '8px' }}
-                                    disabled={deletingId === rec.id}
-                                    onClick={() => handleDeleteRecording(rec.id)}
-                                >
-                                    {deletingId === rec.id ? 'Deleting...' : 'Delete Video'}
-                                </button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                                    <button
+                                        type="button"
+                                        className="btn primary-btn"
+                                        disabled={downloadingId === rec.id}
+                                        onClick={() => handleDownloadRecording(rec)}
+                                    >
+                                        {downloadingId === rec.id ? 'Downloading...' : 'Download Video'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn danger-btn"
+                                        disabled={deletingId === rec.id}
+                                        onClick={() => handleDeleteRecording(rec.id)}
+                                    >
+                                        {deletingId === rec.id ? 'Deleting...' : 'Delete Video'}
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
                 )}
             </main>
-        </>
+        </div>
     );
 }

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import MediaStreamVideo from './MediaStreamVideo';
 
 export default function MeetingLobby({
@@ -15,12 +16,12 @@ export default function MeetingLobby({
     return (
         <div className="meeting-wrapper">
             <header className="meeting-header">
-                <div className="logo" style={{ fontSize: '1.2rem' }}>
+                <Link to="/" className="logo" style={{ fontSize: '1.2rem', textDecoration: 'none' }}>
                     ZMeet
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 'normal', marginLeft: '10px' }}>
                         Room: {roomId}
                     </span>
-                </div>
+                </Link>
             </header>
 
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
