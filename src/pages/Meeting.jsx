@@ -32,6 +32,7 @@ export default function Meeting() {
     const [screenStream, setScreenStream] = useState(null);
     const [remoteParticipants, setRemoteParticipants] = useState({});
     const [messages, setMessages] = useState([]);
+    const [reactions, setReactions] = useState([]);
     const [chatMessage, setChatMessage] = useState('');
     const [isMicOn, setIsMicOn] = useState(true);
     const [isCamOn, setIsCamOn] = useState(true);
@@ -50,6 +51,8 @@ export default function Meeting() {
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
     const audioContextRef = useRef(null);
+    const reactionTimeoutsRef = useRef([]);
+    const remoteParticipantsRef = useRef({});
 
     const isTargetedToCurrentUser = (target) => !target || target === user.id;
     const shouldInitiateConnection = (remoteUserId) => user.id.localeCompare(remoteUserId) > 0;
@@ -82,6 +85,10 @@ export default function Meeting() {
             }
         }));
     };
+
+    useEffect(() => {
+        remoteParticipantsRef.current = remoteParticipants;
+    }, [remoteParticipants]);
 
     const clearParticipantStream = (userId, slot) => {
         setRemoteParticipants(prev => {
@@ -134,11 +141,15 @@ export default function Meeting() {
         }
 
         const slots = remoteStreamSlotsRef.current[userId] || {};
+        const participant = remoteParticipantsRef.current[userId];
         let slot = 'camera';
 
         if (slots.camera === stream.id) {
             slot = 'camera';
         } else if (slots.screen === stream.id) {
+            slot = 'screen';
+        } else if (participant?.cameraStream && !participant?.screenStream) {
+            slots.screen = stream.id;
             slot = 'screen';
         } else if (!slots.camera) {
             slots.camera = stream.id;
@@ -261,6 +272,19 @@ export default function Meeting() {
                 console.error('Error applying queued ICE candidate', error);
             }
         }
+    };
+
+    const pushReaction = (reaction) => {
+        const id = `${reaction.senderId}-${reaction.timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+        const nextReaction = { ...reaction, id };
+
+        setReactions(prev => [...prev, nextReaction]);
+
+        const timeoutId = setTimeout(() => {
+            setReactions(prev => prev.filter(currentReaction => currentReaction.id !== id));
+        }, 2400);
+
+        reactionTimeoutsRef.current.push(timeoutId);
     };
 
     const addTrackToPeers = async (track, stream) => {
@@ -389,6 +413,9 @@ export default function Meeting() {
                 audioContextRef.current.close().catch(() => {});
             }
 
+            reactionTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+            reactionTimeoutsRef.current = [];
+
             socketRef.current?.disconnect();
 
             Object.values(peersRef.current).forEach(peerRecord => {
@@ -404,8 +431,6 @@ export default function Meeting() {
     const setupSocket = () => {
         const socket = io(SOCKET_URL);
         socketRef.current = socket;
-
-        socket.emit('join-room', roomId, user.id, user.name);
 
         socket.on('room-error', ({ message }) => {
             toast.error(message || 'Room not found');
@@ -512,6 +537,10 @@ export default function Meeting() {
             }
         });
 
+        socket.on('reaction', (reaction) => {
+            pushReaction(reaction);
+        });
+
         socket.on('user-disconnected', ({ userId: remoteUserId }) => {
             if (peersRef.current[remoteUserId]) {
                 peersRef.current[remoteUserId].connection.close();
@@ -519,6 +548,10 @@ export default function Meeting() {
             }
 
             removeParticipant(remoteUserId);
+        });
+
+        socket.on('connect', () => {
+            socket.emit('join-room', roomId, user.id, user.name);
         });
     };
 
@@ -800,6 +833,25 @@ export default function Meeting() {
         navigate('/');
     };
 
+    const handleSendReaction = (emoji) => {
+        if (!socketRef.current) {
+            return;
+        }
+
+        const reaction = {
+            roomId,
+            senderId: user.id,
+            senderName: user.name,
+            emoji
+        };
+
+        socketRef.current.emit('reaction', reaction);
+        pushReaction({
+            ...reaction,
+            timestamp: new Date().toISOString()
+        });
+    };
+
     const handleJoinMeeting = async () => {
         let stream = localStreamRef.current;
 
@@ -857,6 +909,21 @@ export default function Meeting() {
 
             <div className="meeting-body">
                 <div className="video-area">
+                    {reactions.length > 0 && (
+                        <div style={{ position: 'absolute', top: '90px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '12px', zIndex: 20, pointerEvents: 'none', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '70%' }}>
+                            {reactions.map(reaction => (
+                                <div
+                                    key={reaction.id}
+                                    className="glass-panel"
+                                    style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', animation: 'floatUp 2.4s ease forwards' }}
+                                >
+                                    <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>{reaction.emoji}</span>
+                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{reaction.senderName}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="video-grid">
                         <div className="video-wrapper">
                             <MediaStreamVideo stream={localStream} muted style={{ transform: 'scaleX(-1)' }} />
@@ -964,6 +1031,19 @@ export default function Meeting() {
                                 value={chatMessage}
                                 onChange={(event) => setChatMessage(event.target.value)}
                             />
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {['👍', '😂', '🔥', '❤️'].map(emoji => (
+                                    <button
+                                        key={emoji}
+                                        type="button"
+                                        className="btn"
+                                        onClick={() => handleSendReaction(emoji)}
+                                        style={{ width: '44px', minWidth: '44px', padding: 0, background: 'var(--bg-main)', border: '1px solid var(--border)', color: 'white' }}
+                                    >
+                                        {emoji}
+                                    </button>
+                                ))}
+                            </div>
                             <button type="submit" className="btn primary-btn" style={{ width: 'auto' }}>
                                 Send
                             </button>
