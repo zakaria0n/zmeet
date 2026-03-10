@@ -17,7 +17,7 @@ import {
 import MeetingLobby from '../components/MeetingLobby';
 import MediaStreamVideo from '../components/MediaStreamVideo';
 import { useAuth } from '../context/AuthContext';
-import { API_URL, ICE_SERVERS, SOCKET_URL, supabase } from '../config';
+import { API_URL, ICE_SERVERS, SOCKET_URL, TURN_URL, supabase } from '../config';
 
 const configuration = {
     iceServers: ICE_SERVERS
@@ -53,6 +53,7 @@ export default function Meeting() {
     const audioContextRef = useRef(null);
     const reactionTimeoutsRef = useRef([]);
     const remoteParticipantsRef = useRef({});
+    const turnWarningShownRef = useRef(false);
 
     const isTargetedToCurrentUser = (target) => !target || target === user.id;
     const isPolitePeer = (remoteUserId) => user.id.localeCompare(remoteUserId) > 0;
@@ -459,6 +460,12 @@ export default function Meeting() {
         socket.on('user-connected', async ({ userId: remoteUserId, userName }) => {
             toast(`${userName} joined the room`);
             registerParticipant(remoteUserId, userName);
+
+            if (!TURN_URL && !turnWarningShownRef.current) {
+                turnWarningShownRef.current = true;
+                toast.error('TURN server not configured. Camera and screen share may fail between different networks.');
+            }
+
             await negotiateWithPeer(remoteUserId);
         });
 
