@@ -47,6 +47,7 @@ export default function Meeting() {
     const peersRef = useRef({});
     const remoteStreamSlotsRef = useRef({});
     const remoteTrackStreamsRef = useRef({});
+    const pendingIceByUserRef = useRef({});
     const localStreamRef = useRef(null);
     const screenStreamRef = useRef(null);
     const mediaRecorderRef = useRef(null);
@@ -117,6 +118,7 @@ export default function Meeting() {
     const removeParticipant = (userId) => {
         delete remoteStreamSlotsRef.current[userId];
         delete remoteTrackStreamsRef.current[userId];
+        delete pendingIceByUserRef.current[userId];
 
         setRemoteParticipants(prev => {
             const next = { ...prev };
@@ -228,12 +230,14 @@ export default function Meeting() {
         const peerRecord = {
             connection,
             makingOffer: false,
-            pendingCandidates: [],
+            pendingCandidates: pendingIceByUserRef.current[remoteUserId] || [],
             ignoreOffer: false,
             isSettingRemoteAnswerPending: false,
             needsNegotiation: false,
             polite: isPolitePeer(remoteUserId)
         };
+
+        delete pendingIceByUserRef.current[remoteUserId];
 
         connection.onicecandidate = (event) => {
             if (event.candidate) {
@@ -490,6 +494,7 @@ export default function Meeting() {
 
             peersRef.current = {};
             remoteStreamSlotsRef.current = {};
+            pendingIceByUserRef.current = {};
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roomId, user.id]);
@@ -568,6 +573,11 @@ export default function Meeting() {
 
             const peerRecord = peersRef.current[senderId];
             if (!peerRecord) {
+                if (!pendingIceByUserRef.current[senderId]) {
+                    pendingIceByUserRef.current[senderId] = [];
+                }
+
+                pendingIceByUserRef.current[senderId].push(candidate);
                 return;
             }
 
