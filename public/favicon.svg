@@ -10,9 +10,6 @@
       <stop offset="1" stop-color="#B26BFF"/>
     </linearGradient>
   </defs>
-
-  <rect width="256" height="256" rx="64" fill="#070A12"/>
-
   <path
     d="M40 82C40 60.461 57.461 43 79 43H153C182.271 43 206 66.729 206 96V132C206 161.271 182.271 185 153 185H120L93 214V185H79C57.461 185 40 167.539 40 146V82Z"
     fill="url(#bg)"

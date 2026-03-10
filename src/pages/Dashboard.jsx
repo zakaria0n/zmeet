@@ -100,7 +100,7 @@ export default function Dashboard() {
             </header>
 
             <main className="main-content dashboard-main">
-                <section className="dashboard-hero glass-panel">
+                <section className="dashboard-hero glass-panel animate-in">
                     <div className="dashboard-hero-copy">
                         <div className="dashboard-badge">
                             <Sparkles size={16} />
@@ -140,7 +140,7 @@ export default function Dashboard() {
                 </section>
 
                 <section className="dashboard-actions-grid">
-                    <section className="glass-panel dashboard-action-card primary">
+                    <section className="glass-panel dashboard-action-card primary animate-in delay-100">
                         <div className="dashboard-action-icon">
                             <Video size={22} />
                         </div>
@@ -158,7 +158,7 @@ export default function Dashboard() {
                         </button>
                     </section>
 
-                    <section className="glass-panel dashboard-action-card">
+                    <section className="glass-panel dashboard-action-card animate-in delay-200">
                         <div className="dashboard-action-icon">
                             <DoorOpen size={22} />
                         </div>
@@ -187,19 +187,19 @@ export default function Dashboard() {
                 </section>
 
                 <section className="dashboard-feature-grid">
-                    <article className="glass-panel dashboard-feature-card">
+                    <article className="glass-panel dashboard-feature-card animate-in delay-300">
                         <span className="dashboard-feature-kicker">Inside every session</span>
                         <h3>Video, voice, screen and chat in one place</h3>
                         <p>Keep the call focused while sharing screens, reacting with emoji, and following the room chat.</p>
                     </article>
 
-                    <article className="glass-panel dashboard-feature-card">
+                    <article className="glass-panel dashboard-feature-card animate-in delay-300">
                         <span className="dashboard-feature-kicker">After the meeting</span>
                         <h3>Recordings stay one click away</h3>
                         <p>Open your saved sessions from the recordings space whenever you need to review or download them.</p>
                     </article>
 
-                    <article className="glass-panel dashboard-feature-card">
+                    <article className="glass-panel dashboard-feature-card animate-in delay-300">
                         <span className="dashboard-feature-kicker">Quick tip</span>
                         <h3>Best results for room codes</h3>
                         <p>Ask everyone to enter the exact 6-character code and wait in the dashboard until the host is ready.</p>
