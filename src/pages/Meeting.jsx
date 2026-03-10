@@ -240,7 +240,6 @@ export default function Meeting() {
             ignoreOffer: false,
             isSettingRemoteAnswerPending: false,
             needsNegotiation: false,
-            syncPromise: null,
             polite: isPolitePeer(remoteUserId)
         };
 
@@ -282,10 +281,8 @@ export default function Meeting() {
         };
 
         peersRef.current[remoteUserId] = peerRecord;
-        peerRecord.syncPromise = syncLocalTracksToPeer(peerRecord).catch(error => {
+        syncLocalTracksToPeer(peerRecord).catch(error => {
             console.error('Error syncing local tracks to peer', error);
-        }).finally(() => {
-            peerRecord.syncPromise = null;
         });
         return peerRecord;
     };
@@ -299,12 +296,6 @@ export default function Meeting() {
         }
 
         try {
-            if (peerRecord.syncPromise) {
-                await peerRecord.syncPromise;
-            } else {
-                await syncLocalTracksToPeer(peerRecord);
-            }
-
             peerRecord.makingOffer = true;
             if (connection.signalingState !== 'stable') {
                 return;
@@ -327,12 +318,6 @@ export default function Meeting() {
 
     const requestNegotiation = async (remoteUserId) => {
         const peerRecord = ensurePeerConnection(remoteUserId);
-
-        if (peerRecord.syncPromise) {
-            await peerRecord.syncPromise;
-        } else {
-            await syncLocalTracksToPeer(peerRecord);
-        }
 
         if (peerRecord.makingOffer || peerRecord.connection.signalingState !== 'stable') {
             peerRecord.needsNegotiation = true;
@@ -375,7 +360,6 @@ export default function Meeting() {
     const addTrackToPeers = async (slot, track) => {
         for (const peerId of Object.keys(peersRef.current)) {
             const peerRecord = ensurePeerConnection(peerId);
-            await syncLocalTracksToPeer(peerRecord);
             await peerRecord.transceivers[slot].sender.replaceTrack(track);
             await requestNegotiation(peerId);
         }
@@ -384,7 +368,6 @@ export default function Meeting() {
     const removeTrackFromPeers = async (slot) => {
         for (const peerId of Object.keys(peersRef.current)) {
             const peerRecord = peersRef.current[peerId];
-            await syncLocalTracksToPeer(peerRecord);
             await peerRecord.transceivers[slot].sender.replaceTrack(null);
             await requestNegotiation(peerId);
         }
