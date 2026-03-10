@@ -176,15 +176,28 @@ export default function Meeting() {
             return 'audioStream';
         }
 
-        if (transceiver === peerRecord.transceivers.camera) {
-            return 'cameraStream';
-        }
-
-        if (transceiver === peerRecord.transceivers.screen) {
-            return 'screenStream';
+        const mappedSlot = transceiver?.mid ? peerRecord.midToSlot?.[transceiver.mid] : null;
+        if (mappedSlot) {
+            return mappedSlot;
         }
 
         return null;
+    };
+
+    const syncMidToSlotMap = (peerRecord) => {
+        Object.entries(peerRecord.transceivers).forEach(([slotKey, transceiver]) => {
+            if (!transceiver?.mid) {
+                return;
+            }
+
+            if (slotKey === 'audio') {
+                peerRecord.midToSlot[transceiver.mid] = 'audioStream';
+            } else if (slotKey === 'camera') {
+                peerRecord.midToSlot[transceiver.mid] = 'cameraStream';
+            } else if (slotKey === 'screen') {
+                peerRecord.midToSlot[transceiver.mid] = 'screenStream';
+            }
+        });
     };
 
     const registerRemoteTrack = (userId, peerRecord, track, stream, transceiver) => {
@@ -235,6 +248,7 @@ export default function Meeting() {
         const peerRecord = {
             connection,
             transceivers,
+            midToSlot: {},
             makingOffer: false,
             pendingCandidates: pendingIceByUserRef.current[remoteUserId] || [],
             ignoreOffer: false,
@@ -312,6 +326,7 @@ export default function Meeting() {
 
             const offer = await connection.createOffer();
             await connection.setLocalDescription(offer);
+            syncMidToSlotMap(peerRecord);
 
             socketRef.current?.emit('webrtc-offer', {
                 roomId,
@@ -557,10 +572,12 @@ export default function Meeting() {
                 }
 
                 await connection.setRemoteDescription(new RTCSessionDescription(offer));
+                syncMidToSlotMap(peerRecord);
                 peerRecord.isSettingRemoteAnswerPending = false;
                 await flushPendingCandidates(peerRecord);
                 const answer = await connection.createAnswer();
                 await connection.setLocalDescription(answer);
+                syncMidToSlotMap(peerRecord);
                 peerRecord.needsNegotiation = false;
 
                 socket.emit('webrtc-answer', {
@@ -585,6 +602,7 @@ export default function Meeting() {
 
             try {
                 await peerRecord.connection.setRemoteDescription(new RTCSessionDescription(answer));
+                syncMidToSlotMap(peerRecord);
                 peerRecord.ignoreOffer = false;
                 await flushPendingCandidates(peerRecord);
             } catch (error) {
